@@ -12,28 +12,28 @@
         
         .info-window { padding: 3px; text-align: center; font-weight: bold; font-size: 14px; color: #1e293b; }
         
-        /* 내 위치 버튼 */
+        /* 카카오맵 스타일 오른쪽 아래 내 위치 버튼 */
         .btn-mylocation { 
-            position: absolute; top: 15px; right: 15px; z-index: 999;
+            position: absolute; bottom: 20px; right: 15px; z-index: 999;
             background: #ffffff; color: #1e293b; border: 2px solid #cbd5e1;
-            padding: 10px 14px; border-radius: 8px; font-weight: bold; font-size: 14px;
-            cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            padding: 12px 16px; border-radius: 30px; font-weight: bold; font-size: 14px;
+            cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            display: flex; align-items: center; gap: 4px;
         }
-        .btn-mylocation:active { background: #f1f5f9; }
+        .btn-mylocation:active { background: #f1f5f9; transform: scale(0.95); }
 
-        /* 지도 범례 */
+        /* 지도 범례 (왼쪽 아래) */
         .legend {
             position: absolute; bottom: 20px; left: 15px; z-index: 999;
             background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 8px;
             box-shadow: 0 4px 10px rgba(0,0,0,0.15); font-size: 11px; font-weight: bold; line-height: 1.7;
-            max-height: 800px;
         }
-        .legend-color { display: inline-block; width: 25px; height: 6px; margin-right: 8px; vertical-align: middle; border-radius: 3px; }
+        .legend-color { inline-block; width: 25px; height: 6px; margin-right: 8px; vertical-align: middle; border-radius: 3px; display: inline-block; }
     </style>
 </head>
 <body>
 
-    <button class="btn-mylocation" onclick="findMyLocation()">📍 내 위치 찾기</button>
+    <button class="btn-mylocation" onclick="findMyLocation()">📍 내 위치로</button>
 
     <div class="legend">
         <div style="font-size: 12px; border-bottom: 1px solid #e2e8f0; margin-bottom: 5px; padding-bottom: 3px; color:#1e40af;">🚂 전국 철도망 범례 (지하철 제외)</div>
@@ -82,7 +82,7 @@
             alert("위치 정보를 가져오지 못했습니다. GPS를 켜주세요.");
         });
 
-        // 데이터 보강: 대한민국에 존재하는 KTX / 무궁화 전 노선 필수 역들 총망라
+        // 대한민국 KTX / 무궁화 전 노선 필수 역 목록
         var stations = [
             // 경부선
             { name: "서울역", lat: 37.5546, lng: 126.9706 }, { name: "용산역", lat: 37.5298, lng: 126.9648 }, { name: "영등포역", lat: 37.5164, lng: 126.9063 }, { name: "수원역", lat: 37.2659, lng: 126.9999 },
@@ -99,21 +99,21 @@
             // 강릉선/경강선
             { name: "청량리역", lat: 37.5801, lng: 127.0451 }, { name: "양평역", lat: 37.4927, lng: 127.4918 }, { name: "서원주역", lat: 37.3820, lng: 127.8593 }, { name: "만종역", lat: 37.3619, lng: 127.8924 },
             { name: "횡성역", lat: 37.4994, lng: 127.9944 }, { name: "둔내역", lat: 37.5144, lng: 128.2166 }, { name: "평창역", lat: 37.5459, lng: 128.3986 }, { name: "진부역", lat: 37.6375, lng: 128.5639 }, { name: "강릉역", lat: 37.7628, lng: 128.8985 },
-            // 장항선 (신규)
+            // 장항선
             { name: "온양온천역", lat: 36.7815, lng: 127.0048 }, { name: "홍성역", lat: 36.6026, lng: 126.6744 }, { name: "대천역", lat: 36.3294, lng: 126.5852 }, { name: "장항역", lat: 36.0028, lng: 126.7103 },
-            // 충북선 (신규)
+            // 충북선
             { name: "청주역", lat: 36.6436, lng: 127.3773 }, { name: "충주역", lat: 36.9818, lng: 127.9142 },
-            // 경전선 (신규)
+            // 경전선
             { name: "창원중앙역", lat: 35.2361, lng: 128.6918 }, { name: "마산역", lat: 35.2351, lng: 128.5815 }, { name: "진주역", lat: 35.1485, lng: 128.1176 },
-            // 중앙/영동/경북선/동해선
+            // 중앙/영동/경북선/동해선 (★ 묵호, 정동진 신규 보강)
             { name: "원주역", lat: 37.3117, lng: 127.9461 }, { name: "제천역", lat: 37.1287, lng: 128.2012 }, { name: "단양역", lat: 36.9696, lng: 128.3499 }, { name: "풍기역", lat: 36.8722, lng: 128.5275 },
             { name: "영주역", lat: 36.8094, lng: 128.6258 }, { name: "안동역", lat: 36.5756, lng: 128.6756 }, { name: "의성역", lat: 36.3484, lng: 128.6946 }, { name: "경주역", lat: 35.7972, lng: 129.1394 },
-            { name: "태백역", lat: 37.1741, lng: 128.9902 }, { name: "동해역", lat: 37.4915, lng: 129.1129 }, { name: "상주역", lat: 36.4172, lng: 128.1724 }, { name: "점촌역", lat: 36.5828, lng: 128.1812 },
-            { name: "태화강역", lat: 35.5397, lng: 129.3533 }, { name: "포항역", lat: 36.0719, lng: 129.3418 }
+            { name: "태백역", lat: 37.1741, lng: 128.9902 }, { name: "동해역", lat: 37.4915, lng: 129.1129 }, { name: "묵호역", lat: 37.5503, lng: 129.1121 }, { name: "정동진역", lat: 37.6916, lng: 129.0332 },
+            { name: "상주역", lat: 36.4172, lng: 128.1724 }, { name: "점촌역", lat: 36.5828, lng: 128.1812 }, { name: "태화강역", lat: 35.5397, lng: 129.3533 }, { name: "포항역", lat: 36.0719, lng: 129.3418 }
         ];
 
         stations.forEach(function(station) {
-            L.marker([station.lat, station.lng]).addTo(map).bindPopup(`<div class="info-window">Item 🚂 ${station.name}</div>`);
+            L.marker([station.lat, station.lng]).addTo(map).bindPopup(`<div class="info-window">🚉 ${station.name}</div>`);
         });
 
         // 🔵 1. 경부선 (블루)
@@ -137,11 +137,11 @@
         // 🧼 7. 충북선 (청록색)
         L.polyline([[36.5922, 127.2996], [36.6436, 127.3773], [36.9818, 127.9142], [37.1287, 128.2012]], { color: '#0d9488', weight: 6, opacity: 0.9 }).addTo(map);
 
-        // 🟤 8. 중앙/영동/경북선/동해남부선 내륙 연계망 (갈색)
+        // 🟤 8. 중앙/영동/경북선/동해남부선 내륙 연계망 (갈색) - ★ [수정완료] 동해~묵호~정동진~강릉 노선 완벽 연결!
         L.polyline([[37.3820, 127.8593], [37.3117, 127.9461], [37.1287, 128.2012], [36.9696, 128.3499], [36.8722, 128.5275], [36.8094, 128.6258], [36.5756, 128.6756], [36.3484, 128.6946], [35.8799, 128.6285], [35.7972, 129.1394], [35.5397, 129.3533], [35.1152, 129.0422]], { color: '#a16207', weight: 6, opacity: 0.9 }).addTo(map);
-        L.polyline([[37.1287, 128.2012], [37.1741, 128.9902], [37.4915, 129.1129]], { color: '#a16207', weight: 6, opacity: 0.9 }).addTo(map); // 영동선 구간
-        L.polyline([[36.8094, 128.6258], [36.5828, 128.1812], [36.4172, 128.1724], [36.1232, 128.1158]], { color: '#a16207', weight: 6, opacity: 0.9 }).addTo(map); // 경북선 구간
-        L.polyline([[35.7972, 129.1394], [36.0719, 129.3418]], { color: '#a16207', weight: 6, opacity: 0.9 }).addTo(map); // 동해선 포항 구간
+        L.polyline([[37.1287, 128.2012], [37.1741, 128.9902], [37.4915, 129.1129], [37.5503, 129.1121], [37.6916, 129.0332], [37.7628, 128.8985]], { color: '#a16207', weight: 6, opacity: 0.9 }).addTo(map); // 제천~동해~정동진~강릉선 연결
+        L.polyline([[36.8094, 128.6258], [36.5828, 128.1812], [36.4172, 128.1724], [36.1232, 128.1158]], { color: '#a16207', weight: 6, opacity: 0.9 }).addTo(map); // 경북선
+        L.polyline([[35.7972, 129.1394], [36.0719, 129.3418]], { color: '#a16207', weight: 6, opacity: 0.9 }).addTo(map); // 동해선
 
         window.onload = function() {
             setTimeout(findMyLocation, 500);
