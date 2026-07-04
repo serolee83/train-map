@@ -31,9 +31,8 @@
         table { width: 100%; border-collapse: collapse; font-size: 14px; text-align: center; }
         th, td { padding: 10px; border-bottom: 1px solid #edf2f7; }
         th { background: #f1f5f9; color: #475569; font-weight: bold; position: sticky; top: 0; }
-        .loading { text-align: center; padding: 30px; color: #64748b; }
+        .loading { text-align: center; padding: 30px; color: #64748b; font-weight: bold; }
         
-        /* 지도 팝업 여백 조정 */
         .leaflet-popup-content { margin: 8px; }
     </style>
 </head>
@@ -61,89 +60,94 @@
     </div>
 
     <script>
-        // 1. 지도 생성 (대한민국 중심 대전 부근으로 고정, 확대 레벨 7.5)
+        // 1. 지도 생성 (대한민국 중심부 확대 설정)
         var map = L.map('map').setView([36.25, 127.6], 7.5);
         
-        // 이미지처럼 복잡한 배경을 지우고 철도 노선이 돋보이게 하는 '깔끔한 그레이/화이트 타일' 지도 적용
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-            attribution: '© OpenStreetMap © CARTO'
+        // ★ 수정완료: 지명을 100% 한글 정식 명칭으로 뿌려주는 오픈스트리트맵 기본 레이어로 교체
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
         }).addTo(map);
 
-        // 2. 주요 역 데이터 (위도, 경도, 국토부코드)
+        // 2. 전국 기차역 데이터 보강 (위도, 경도, 국토부코드)
         var stations = [
+            // 경부선 라인
             { name: "서울역", lat: 37.5546, lng: 126.9706, code: "NAT010032" },
             { name: "용산역", lat: 37.5298, lng: 126.9648, code: "NAT010017" },
+            { name: "영등포역", lat: 37.5164, lng: 126.9063, code: "NAT010025" },
             { name: "수원역", lat: 37.2659, lng: 126.9999, code: "NAT011503" },
             { name: "천안아산역", lat: 36.7944, lng: 127.1043, code: "NAT010049" },
             { name: "오송역", lat: 36.6202, lng: 127.3275, code: "NAT010055" },
             { name: "대전역", lat: 36.3323, lng: 127.4342, code: "NAT011668" },
             { name: "동대구역", lat: 35.8799, lng: 128.6285, code: "NAT014122" },
             { name: "부산역", lat: 35.1152, lng: 129.0422, code: "NAT014445" },
+            // 호남선 라인
             { name: "광주송정역", lat: 35.1345, lng: 126.7912, code: "NAT011608" },
             { name: "목포역", lat: 34.7911, lng: 126.3864, code: "NAT013473" },
-            { name: "순천역", lat: 34.9456, lng: 127.5034, code: "NAT013217" }
+            // 전라선 라인
+            { name: "익산역", lat: 35.9409, lng: 126.9429, code: "NAT011634" },
+            { name: "전주역", lat: 35.8497, lng: 127.1619, code: "NAT013064" },
+            { name: "순천역", lat: 34.9456, lng: 127.5034, code: "NAT013217" },
+            { name: "여수엑스포역", lat: 34.7525, lng: 127.7458, code: "NAT013239" },
+            // 동해/강릉/기타 주요역
+            { name: "포항역", lat: 36.0719, lng: 129.3418, code: "NAT010074" },
+            { name: "경주역", lat: 35.7972, lng: 129.1394, code: "NAT010427" },
+            { name: "강릉역", lat: 37.7628, lng: 128.8985, code: "NAT010065" }
         ];
 
-        // 기사님의 공공데이터 키
         var PUBLIC_DATA_KEY = "e5882e03252928b4025a4146da909c9922b30ee395de3e4de79874a435f895cd";
 
-        // 3. 역 마커 생성 및 클릭 이벤트 연결
+        // 3. 역 마커 생성 및 팝업 설정
         stations.forEach(function(station) {
             var marker = L.marker([station.lat, station.lng]).addTo(map);
-
             var content = `<div class="info-window">
                             <div class="station-title">${station.name}</div>
                             <button class="btn-timetable" onclick="fetchTimetable('${station.name}', '${station.code}')">시간표 보기</button>
                           </div>`;
-
             marker.bindPopup(content);
         });
 
-        // 4. ★ 보내주신 이미지처럼 선명한 굵은 핑크색 철도 노선 그리기
-        // [경부선 라인 좌표 세팅]
-        var gyeongbuLinePath = [
-            [37.5546, 126.9706], // 서울역
-            [37.2659, 126.9999], // 수원역
-            [36.7944, 127.1043], // 천안아산역
-            [36.6202, 127.3275], // 오송역
-            [36.3323, 127.4342], // 대전역
-            [35.8799, 128.6285], // 동대구역
-            [35.1152, 129.0422]  // 부산역
-        ];
+        // 4. 전국 주요 철도망 라인 연결 (핑크색 굵은 선)
+        var gyeongbuLine = [[37.5546, 126.9706], [37.5164, 126.9063], [37.2659, 126.9999], [36.7944, 127.1043], [36.6202, 127.3275], [36.3323, 127.4342], [35.8799, 128.6285], [35.1152, 129.0422]];
+        var honamLine = [[36.6202, 127.3275], [35.9409, 126.9429], [35.1345, 126.7912], [34.7911, 126.3864]];
+        var jeollaLine = [[35.9409, 126.9429], [35.8497, 127.1619], [34.9456, 127.5034], [34.7525, 127.7458]];
+        var donghaeLine = [[35.8799, 128.6285], [35.7972, 129.1394], [36.0719, 129.3418]];
 
-        // [호남선 라인 좌표 세팅]
-        var honamLinePath = [
-            [36.6202, 127.3275], // 오송역 분기점
-            [35.1345, 126.7912], // 광주송정역
-            [34.7911, 126.3864]  // 목포역
-        ];
+        L.polyline(gyeongbuLine, { color: '#ff4a8d', weight: 7, opacity: 0.85 }).addTo(map);
+        L.polyline(honamLine, { color: '#ff4a8d', weight: 7, opacity: 0.85 }).addTo(map);
+        L.polyline(jeollaLine, { color: '#ff4a8d', weight: 7, opacity: 0.85 }).addTo(map);
+        L.polyline(donghaeLine, { color: '#ff4a8d', weight: 7, opacity: 0.85 }).addTo(map);
 
-        // 이미지와 똑같은 두께와 색상으로 선 그리기
-        L.polyline(gyeongbuLinePath, { color: '#ff4a8d', weight: 7, opacity: 0.8 }).addTo(map);
-        L.polyline(honamLinePath, { color: '#ff4a8d', weight: 7, opacity: 0.8 }).addTo(map);
-
-
-        // 5. 국토교통부 실시간 시간표 조회 함수
+        // 5. 실시간 시간표 조회 및 에러 정밀 추적 로직
         function fetchTimetable(stationName, stationCode) {
             document.getElementById('sheet-title').innerText = stationName + " 당일 출발 열차";
-            document.getElementById('sheet-content').innerHTML = '<div class="loading">실시간 시간표 데이터를 불러오는 중...</div>';
+            document.getElementById('sheet-content').innerHTML = '<div class="loading">🔄 실시간 시간표 데이터를 불러오는 중...</div>';
             document.getElementById('timetable-sheet').classList.add('open');
 
             var today = new Date();
-            var yyyy = today.getFullYear();
-            var mm = String(today.getMonth() + 1).padStart(2, '0');
-            var dd = String(today.getDate()).padStart(2, '0');
-            var ymd = yyyy + mm + dd;
+            var ymd = today.getFullYear() + String(today.getMonth() + 1).padStart(2, '0') + String(today.getDate()).padStart(2, '0');
 
             var baseUrl = `http://apis.data.go.kr/1613000/TrainInfoService/getChgTrainSttnAcptnSlprTrainSttnList?serviceKey=${encodeURIComponent(PUBLIC_DATA_KEY)}&nodeId=${stationCode}&searchDate=${ymd}&numOfRows=50&pageNo=1&_type=json`;
-            var proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(baseUrl)}`;
+            
+            // ★ 수정완료: 훨씬 더 안정적이고 빠른 공인 프록시 서버(corsproxy.io)로 교체
+            var proxyUrl = `https://corsproxy.io/?${encodeURIComponent(baseUrl)}`;
 
             fetch(proxyUrl)
-                .then(res => res.json())
-                .then(data => {
+                .then(res => res.text()) // XML 에러 판별을 위해 먼저 텍스트로 받음
+                .then(text => {
+                    // 공공데이터포털 서버에서 에러가 나서 XML문서가 수신된 경우 처리
+                    if (text.trim().startsWith('<')) {
+                        if (text.includes('SERVICE_KEY_IS_NOT_REGISTERED')) {
+                            document.getElementById('sheet-content').innerHTML = '<div class="loading" style="color:#ef4444; text-align:left; line-height:1.6;">❌ 공공데이터포털 인증키 분실/미활성화 에러<br><br>1. 공공데이터포털 마이페이지에서 [일반 인증키(Decoding)]를 정확히 복사했는지 확인해 주세요.<br>2. 키를 새로 발급받으셨다면 정부 서버에서 동기화하는 데 최대 1~2시간이 걸릴 수 있습니다.</div>';
+                        } else {
+                            document.getElementById('sheet-content').innerHTML = '<div class="loading" style="color:#ef4444;">❌ 공공데이터포털 서버 일시적 오류입니다.</div>';
+                        }
+                        return;
+                    }
+
+                    var data = JSON.parse(text);
                     var items = data.response?.body?.items?.item;
                     if (!items) {
-                        document.getElementById('sheet-content').innerHTML = '<div class="loading">현재 운행 예정인 열차가 없거나 데이터를 가져오지 못했습니다.</div>';
+                        document.getElementById('sheet-content').innerHTML = '<div class="loading">내역 없음 (오늘 운행하는 열차가 종료되었거나 없습니다.)</div>';
                         return;
                     }
 
@@ -164,7 +168,6 @@
                     items.forEach(item => {
                         var timeStr = String(item.depplctime);
                         var formattedTime = timeStr.substring(8, 10) + ":" + timeStr.substring(10, 12);
-
                         html += `<tr>
                                     <td style="font-weight:bold; color:#1e40af;">${item.traingradename}</td>
                                     <td>${item.trainno}</td>
@@ -178,7 +181,7 @@
                 })
                 .catch(err => {
                     console.error(err);
-                    document.getElementById('sheet-content').innerHTML = '<div class="loading">데이터 로드 실패 (잠시 후 다시 시도해 주세요).</div>';
+                    document.getElementById('sheet-content').innerHTML = '<div class="loading" style="color:#ef4444;">❌ 네트워크 연결 실패 (잠시 후 다시 시도해 주세요).</div>';
                 });
         }
 
