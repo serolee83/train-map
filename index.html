@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>전국 철도 노선도 (탁송용)</title>
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Malgun Gothic', sans-serif; overflow: hidden; }
+        #map { width: 100%; height: 100%; z-index: 1; }
+        
+        /* 정보창 및 버튼 스타일 */
+        .info-window { padding: 10px; min-width: 150px; text-align: center; }
+        .station-title { font-weight: bold; font-size: 16px; margin-bottom: 8px; color: #1e293b; }
+        .btn-timetable { background: #2563eb; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold; width: 100%; }
+        
+        /* 시간표 출력용 하단 모달 sheet (모바일 최적화) */
+        #timetable-sheet { 
+            position: fixed; bottom: -50%; left: 0; width: 100%; height: 45%; 
+            background: white; z-index: 999; border-radius: 20px 20px 0 0; 
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.15); transition: bottom 0.3s ease;
+            display: flex; flex-direction: column;
+        }
+        #timetable-sheet.open { bottom: 0; }
+        .sheet-header { padding: 15px; font-size: 18px; font-weight: bold; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border-radius: 20px 20px 0 0; }
+        .btn-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #64748b; }
+        .sheet-content { flex: 1; overflow-y: auto; padding: 10px; }
+        
+        /* 테이블 스타일 */
+        table { width: 100%; border-collapse: collapse; font-size: 14px; text-align: center; }
+        th, td { padding: 10px; border-bottom: 1px solid #edf2f7; }
+        th { background: #f1f5f9; color: #475569; font-weight: bold; position: sticky; top: 0; }
+        .loading { text-align: center; padding: 30px; color: #64748b; }
+    </style>
+    <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=9a3308dd26dbcbb1c240aefaf63a7d61"></script>
+</head>
+<body>
+
+    <script>
+        var pw = prompt("접근 비밀번호를 입력하세요:");
+        if (pw !== "1234") { // 원하시는 비밀번호로 변경하세요
+            alert("올바르지 않은 접근입니다.");
+            document.body.innerHTML = "";
+            window.stop();
+        }
+    </script>
+
+    <div id="map"></div>
+
+    <div id="timetable-sheet">
+        <div class="sheet-header">
+            <span id="sheet-title">출발 열차 시간표</span>
+            <button class="btn-close" onclick="closeSheet()">✕</button>
+        </div>
+        <div class="sheet-content" id="sheet-content">
+            <div class="loading">역을 선택하시면 실시간 시간표가 표시됩니다.</div>
+        </div>
+    </div>
+
+    <script>
+        // 2. 지도 생성 (전국이 다 보이도록 대전 중심으로 레벨 11 설정)
+        var mapContainer = document.getElementById('map');
+        var mapOption = { center: new kakao.maps.LatLng(36.3504, 127.3845), level: 11 }; 
+        var map = new kakao.maps.Map(mapContainer, mapOption);
+
+        // 3. 주요 KTX / 무궁화호 역 데이터 샘플 (필요시 위도/경도/국토부코드를 추가하시면 됩니다)
+        var stations = [
+            { name: "서울역", lat: 37.5546, lng: 126.9706, code: "NAT010032" },
+            { name: "용산역", lat: 37.5298, lng: 126.9648, code: "NAT010017" },
+            { name: "수원역", lat: 37.2659, lng: 126.9999, code: "NAT011503" },
+            { name: "대전역", lat: 36.3323, lng: 127.4342, code: "NAT011668" },
+            { name: "동대구역", lat: 35.8799, lng: 128.6285, code: "NAT014122" },
+            { name: "부산역", lat: 35.1152, lng: 129.0422, code: "NAT014445" },
+            { name: "광주송정역", lat: 35.1345, lng: 126.7912, code: "NAT011608" },
+            { name: "순천역", lat: 34.9456, lng: 127.5034, code: "NAT013217" }
+        ];
+
+        // 공공데이터포털에서 받은 [일반 인증키 (Decoding)]를 여기에 입력하세요.
+        var PUBLIC_DATA_KEY = "e5882e03252928b4025a4146da909c9922b30ee395de3e4de79874a435f895cd
+";
+
+        // 4. 마커 생성 및 클릭 이벤트 바인딩
+        stations.forEach(function(station) {
+            var marker = new kakao.maps.Marker({
+                position: new kakao.maps.LatLng(station.lat, station.lng),
+                map: map
+            });
+
+            var infowindow = new kakao.maps.InfoWindow({
+                content: `<div class="info-window">
+                            <div class="station-title">${station.name}</div>
+                            <button class="btn-timetable" onclick="fetchTimetable('${station.name}', '${station.code}')">시간표 보기</button>
+                          </div>`,
+                removable: true
+            });
+
+            kakao.maps.event.addListener(marker, 'click', function() {
+                infowindow.open(map, marker);  
+            });
+        });
+
+        // 5. 국토부 API를 통한 실시간 역별 출도착 시간표 조회 함수
+        function fetchTimetable(stationName, stationCode) {
+            document.getElementById('sheet-title').innerText = stationName + " 당일 출발 열차";
+            document.getElementById('sheet-content').innerHTML = '<div class="loading">실시간 시간표 데이터를 불러오는 중...</div>';
+            document.getElementById('timetable-sheet').classList.add('open');
+
+            // 오늘 날짜 구하기 (YYYYMMDD 형식)
+            var today = new Date();
+            var yyyy = today.getFullYear();
+            var mm = String(today.getMonth() + 1).padStart(2, '0');
+            var dd = String(today.getDate()).padStart(2, '0');
+            var ymd = yyyy + mm + dd;
+
+            // 국토교통부 열차정보 서비스 URL (역별 출도착 주소)
+            var baseUrl = `http://apis.data.go.kr/1613000/TrainInfoService/getChgTrainSttnAcptnSlprTrainSttnList?serviceKey=${encodeURIComponent(PUBLIC_DATA_KEY)}&nodeId=${stationCode}&searchDate=${ymd}&numOfRows=50&pageNo=1&_type=json`;
+            
+            // 브라우저 CORS 에러 우회를 위한 프록시 서버 통과 처리
+            var proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(baseUrl)}`;
+
+            fetch(proxyUrl)
+                .then(res => res.json())
+                .then(data => {
+                    var items = data.response?.body?.items?.item;
+                    if (!items) {
+                        document.getElementById('sheet-content').innerHTML = '<div class="loading">현재 운행 예정인 열차가 없거나 데이터를 가져오지 못했습니다.</div>';
+                        return;
+                    }
+
+                    // 데이터가 단건일 경우 배열로 예외 처리
+                    if (!Array.isArray(items)) { items = [items]; }
+
+                    // 출발 시간 순으로 정렬
+                    items.sort((a, b) => a.depplctime - b.depplctime);
+
+                    var html = `<table>
+                                    <thead>
+                                        <tr>
+                                            <th>열차 종류</th>
+                                            <th>열차 번호</th>
+                                            <th>목적지</th>
+                                            <th>출발 시간</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>`;
+
+                    items.forEach(item => {
+                        // HHMM 형식 포맷팅
+                        var timeStr = String(item.depplctime);
+                        var formattedTime = timeStr.substring(8, 10) + ":" + timeStr.substring(10, 12);
+
+                        html += `<tr>
+                                    <td style="font-weight:bold; color:#1e40af;">${item.traingradename}</td>
+                                    <td>${item.trainno}</td>
+                                    <td style="font-weight:bold;">${item.arrplacename}</td>
+                                    <td style="color:#e11d48; font-weight:bold;">${formattedTime}</td>
+                                 </tr>`;
+                    });
+
+                    html += '</tbody></table>';
+                    document.getElementById('sheet-content').innerHTML = html;
+                })
+                .catch(err => {
+                    console.error(err);
+                    document.getElementById('sheet-content').innerHTML = '<div class="loading">데이터 로드 실패 (인증키 활성화에 최대 1~2시간이 소요될 수 있습니다).</div>';
+                });
+        }
+
+        function closeSheet() {
+            document.getElementById('timetable-sheet').classList.remove('open');
+        }
+    </script>
+</body>
+</html>
