@@ -3,17 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>탁송기사용 전국 철도망 지도</title>
+    <title>탁송기사용 전국 철도망 지도 (전 노선 완전판)</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Malgun Gothic', sans-serif; overflow: hidden; }
         #map { width: 100%; height: 100%; z-index: 1; }
         
-        /* 정보창 및 내 위치 버튼 스타일 */
         .info-window { padding: 3px; text-align: center; font-weight: bold; font-size: 14px; color: #1e293b; }
         
-        /* 내 위치로 이동하는 플로팅 버튼 */
+        /* 내 위치 버튼 */
         .btn-mylocation { 
             position: absolute; top: 15px; right: 15px; z-index: 999;
             background: #ffffff; color: #1e293b; border: 2px solid #cbd5e1;
@@ -22,13 +21,14 @@
         }
         .btn-mylocation:active { background: #f1f5f9; }
 
-        /* 지도 범례(노선 색상 안내창) */
+        /* 지도 범례 */
         .legend {
             position: absolute; bottom: 20px; left: 15px; z-index: 999;
             background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 8px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.15); font-size: 12px; font-weight: bold; line-height: 1.8;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15); font-size: 11px; font-weight: bold; line-height: 1.7;
+            max-height: 800px;
         }
-        .legend-color { display: inline-block; width: 30px; height: 6px; margin-right: 8px; vertical-align: middle; border-radius: 3px; }
+        .legend-color { display: inline-block; width: 25px; height: 6px; margin-right: 8px; vertical-align: middle; border-radius: 3px; }
     </style>
 </head>
 <body>
@@ -36,182 +36,113 @@
     <button class="btn-mylocation" onclick="findMyLocation()">📍 내 위치 찾기</button>
 
     <div class="legend">
-        <div style="font-size: 13px; border-bottom: 1px solid #e2e8f0; margin-bottom: 5px; padding-bottom: 3px; color:#1e40af;">🚂 국가 철도망 범례</div>
+        <div style="font-size: 12px; border-bottom: 1px solid #e2e8f0; margin-bottom: 5px; padding-bottom: 3px; color:#1e40af;">🚂 전국 철도망 범례 (지하철 제외)</div>
         <div><span class="legend-color" style="background:#1e40af;"></span>경부선 (서울~부산)</div>
         <div><span class="legend-color" style="background:#10b981;"></span>호남선 (오송~목포)</div>
         <div><span class="legend-color" style="background:#f97316;"></span>전라선 (익산~여수)</div>
-        <div><span class="legend-color" style="background:#8b5cf6;"></span>강릉선 (서울~강릉)</div>
-        <div><span class="legend-color" style="background:#a16207;"></span>중앙/영동선 (청량리~부전/동해)</div>
+        <div><span class="legend-color" style="background:#8b5cf6;"></span>강릉/경강선 (서울~강릉)</div>
+        <div><span class="legend-color" style="background:#eab308;"></span>장항선 (천안~대천~익산)</div>
+        <div><span class="legend-color" style="background:#dc2626;"></span>경전선 (삼랑진~진주~순천~광주)</div>
+        <div><span class="legend-color" style="background:#0d9488;"></span>충북선 (조치원~청주~제천)</div>
+        <div><span class="legend-color" style="background:#a16207;"></span>중앙/영동/경북선 (내륙·동해)</div>
     </div>
 
     <div id="map"></div>
 
     <script>
-        // 1. 지도 생성 (대한민국 중심부 설정)
         var map = L.map('map').setView([36.25, 127.6], 7.5);
         
-        // 지명을 100% 한글 정식 명칭으로 뿌려주는 지도 레이어
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors'
         }).addTo(map);
 
-        // 내 위치 표시용 전역 변수
         var myLocationMarker = null;
         var myLocationCircle = null;
 
-        // 2. [기능 추가] HTML5 GPS 기반 내 위치 실시간 매핑
         function findMyLocation() {
             if (!navigator.geolocation) {
-                alert("이 브라우저에서는 GPS 위치 추적을 지원하지 않습니다.");
+                alert("GPS 위치 추적을 지원하지 않습니다.");
                 return;
             }
-
-            map.locate({setView: true, maxZoom: 14}); // 내 위치로 화면 이동 및 줌인
+            map.locate({setView: true, maxZoom: 14});
         }
 
-        // GPS 위치를 성공적으로 찾았을 때 실행되는 함수
         map.on('locationfound', function(e) {
-            // 기존 마커가 있다면 제거해서 잔상 방지
             if (myLocationMarker) { map.removeLayer(myLocationMarker); map.removeLayer(myLocationCircle); }
-
-            // 현재 내 위치에 빨간색 정밀 핀과 반경 서클 추가
             myLocationMarker = L.marker(e.latlng, {
                 icon: L.icon({
-                    iconUrl: 'https://cdn-icons-png.flaticon.com/512/5813/5813583.png', // 기사님 위치용 커스텀 GPS 아이콘
-                    iconSize: [35, 35],
-                    iconAnchor: [17, 35]
+                    iconUrl: 'https://cdn-icons-png.flaticon.com/512/5813/5813583.png',
+                    iconSize: [35, 35], iconAnchor: [17, 35]
                 })
-            }).addTo(map).bindPopup("<div class='info-window'>📍 현재 기사님 위치</div>").openPopup();
-
+            }).addTo(map).bindPopup("<div class='info-window'>📍 기사님 현재 위치</div>").openPopup();
             myLocationCircle = L.circle(e.latlng, e.accuracy / 2, { color: '#ef4444', fillColor: '#fca5a5', fillOpacity: 0.15 }).addTo(map);
         });
 
         map.on('locationerror', function(e) {
-            alert("위치 정보를 가져오지 못했습니다. 폰의 GPS(위치 서비스)가 켜져 있는지 확인해 주세요.");
+            alert("위치 정보를 가져오지 못했습니다. GPS를 켜주세요.");
         });
 
-
-        // 3. 우리나라 주요 KTX / 무궁화호 정차역 데이터 구축 (지하철 완벽 배제)
+        // 데이터 보강: 대한민국에 존재하는 KTX / 무궁화 전 노선 필수 역들 총망라
         var stations = [
-            // 경부선 라인 역들
-            { name: "서울역", lat: 37.5546, lng: 126.9706 },
-            { name: "용산역", lat: 37.5298, lng: 126.9648 },
-            { name: "영등포역", lat: 37.5164, lng: 126.9063 },
-            { name: "수원역", lat: 37.2659, lng: 126.9999 },
-            { name: "평택역", lat: 36.9922, lng: 127.0861 },
-            { name: "천안역", lat: 36.8090, lng: 127.1492 },
-            { name: "천안아산역", lat: 36.7944, lng: 127.1043 },
-            { name: "오송역", lat: 36.6202, lng: 127.3275 },
-            { name: "조치원역", lat: 36.5922, lng: 127.2996 },
-            { name: "대전역", lat: 36.3323, lng: 127.4342 },
-            { name: "영동역", lat: 36.1751, lng: 127.7834 },
-            { name: "김천역", lat: 36.1232, lng: 128.1158 },
-            { name: "김천구미역", lat: 36.1130, lng: 128.1818 },
-            { name: "구미역", lat: 36.1284, lng: 128.3308 },
-            { name: "동대구역", lat: 35.8799, lng: 128.6285 },
-            { name: "밀양역", lat: 35.4746, lng: 128.7716 },
-            { name: "구포역", lat: 35.2123, lng: 128.9964 },
-            { name: "부산역", lat: 35.1152, lng: 129.0422 },
-
-            // 호남선 라인 역들
-            { name: "공주역", lat: 36.3116, lng: 127.2141 },
-            { name: "서대전역", lat: 36.3228, lng: 127.4039 },
-            { name: "논산역", lat: 36.2132, lng: 127.0984 },
-            { name: "익산역", lat: 35.9409, lng: 126.9429 },
-            { name: "정읍역", lat: 35.5683, lng: 126.8426 },
-            { name: "장성역", lat: 35.2974, lng: 126.7847 },
-            { name: "광주송정역", lat: 35.1345, lng: 126.7912 },
-            { name: "나주역", lat: 35.0142, lng: 126.7169 },
-            { name: "목포역", lat: 34.7911, lng: 126.3864 },
-
-            // 전라선 라인 역들
-            { name: "전주역", lat: 35.8497, lng: 127.1619 },
-            { name: "남원역", lat: 35.4225, lng: 127.3752 },
-            { name: "곡성역", lat: 35.2818, lng: 127.3015 },
-            { name: "구례구역", lat: 35.1631, lng: 127.4721 },
-            { name: "순천역", lat: 34.9456, lng: 127.5034 },
-            { name: "여천역", lat: 34.7709, lng: 127.6534 },
-            { name: "여수엑스포역", lat: 34.7525, lng: 127.7458 },
-
-            // 강릉선/경강선 라인 역들
-            { name: "청량리역", lat: 37.5801, lng: 127.0451 },
-            { name: "양평역", lat: 37.4927, lng: 127.4918 },
-            { name: "서원주역", lat: 37.3820, lng: 127.8593 },
-            { name: "만종역", lat: 37.3619, lng: 127.8924 },
-            { name: "횡성역", lat: 37.4994, lng: 127.9944 },
-            { name: "둔내역", lat: 37.5144, lng: 128.2166 },
-            { name: "평창역", lat: 37.5459, lng: 128.3986 },
-            { name: "진부역", lat: 37.6375, lng: 128.5639 },
-            { name: "강릉역", lat: 37.7628, lng: 128.8985 },
-
-            // 중앙선/영동선 라인 역들
-            { name: "원주역", lat: 37.3117, lng: 127.9461 },
-            { name: "제천역", lat: 37.1287, lng: 128.2012 },
-            { name: "단양역", lat: 36.9696, lng: 128.3499 },
-            { name: "풍기역", lat: 36.8722, lng: 128.5275 },
-            { name: "영주역", lat: 36.8094, lng: 128.6258 },
-            { name: "안동역", lat: 36.5756, lng: 128.6756 },
-            { name: "의성역", lat: 36.3484, lng: 128.6946 },
-            { name: "경주역", lat: 35.7972, lng: 129.1394 },
-            { name: "태백역", lat: 37.1741, lng: 128.9902 },
-            { name: "동해역", lat: 37.4915, lng: 129.1129 }
+            // 경부선
+            { name: "서울역", lat: 37.5546, lng: 126.9706 }, { name: "용산역", lat: 37.5298, lng: 126.9648 }, { name: "영등포역", lat: 37.5164, lng: 126.9063 }, { name: "수원역", lat: 37.2659, lng: 126.9999 },
+            { name: "평택역", lat: 36.9922, lng: 127.0861 }, { name: "천안역", lat: 36.8090, lng: 127.1492 }, { name: "천안아산역", lat: 36.7944, lng: 127.1043 }, { name: "오송역", lat: 36.6202, lng: 127.3275 },
+            { name: "조치원역", lat: 36.5922, lng: 127.2996 }, { name: "대전역", lat: 36.3323, lng: 127.4342 }, { name: "영동역", lat: 36.1751, lng: 127.7834 }, { name: "김천역", lat: 36.1232, lng: 128.1158 },
+            { name: "김천구미역", lat: 36.1130, lng: 128.1818 }, { name: "구미역", lat: 36.1284, lng: 128.3308 }, { name: "동대구역", lat: 35.8799, lng: 128.6285 }, { name: "밀양역", lat: 35.4746, lng: 128.7716 },
+            { name: "구포역", lat: 35.2123, lng: 128.9964 }, { name: "부산역", lat: 35.1152, lng: 129.0422 },
+            // 호남선
+            { name: "공주역", lat: 36.3116, lng: 127.2141 }, { name: "서대전역", lat: 36.3228, lng: 127.4039 }, { name: "논산역", lat: 36.2132, lng: 127.0984 }, { name: "익산역", lat: 35.9409, lng: 126.9429 },
+            { name: "정읍역", lat: 35.5683, lng: 126.8426 }, { name: "장성역", lat: 35.2974, lng: 126.7847 }, { name: "광주송정역", lat: 35.1345, lng: 126.7912 }, { name: "나주역", lat: 35.0142, lng: 126.7169 }, { name: "목포역", lat: 34.7911, lng: 126.3864 },
+            // 전라선
+            { name: "전주역", lat: 35.8497, lng: 127.1619 }, { name: "남원역", lat: 35.4225, lng: 127.3752 }, { name: "곡성역", lat: 35.2818, lng: 127.3015 }, { name: "구례구역", lat: 35.1631, lng: 127.4721 },
+            { name: "순천역", lat: 34.9456, lng: 127.5034 }, { name: "여천역", lat: 34.7709, lng: 127.6534 }, { name: "여수엑스포역", lat: 34.7525, lng: 127.7458 },
+            // 강릉선/경강선
+            { name: "청량리역", lat: 37.5801, lng: 127.0451 }, { name: "양평역", lat: 37.4927, lng: 127.4918 }, { name: "서원주역", lat: 37.3820, lng: 127.8593 }, { name: "만종역", lat: 37.3619, lng: 127.8924 },
+            { name: "횡성역", lat: 37.4994, lng: 127.9944 }, { name: "둔내역", lat: 37.5144, lng: 128.2166 }, { name: "평창역", lat: 37.5459, lng: 128.3986 }, { name: "진부역", lat: 37.6375, lng: 128.5639 }, { name: "강릉역", lat: 37.7628, lng: 128.8985 },
+            // 장항선 (신규)
+            { name: "온양온천역", lat: 36.7815, lng: 127.0048 }, { name: "홍성역", lat: 36.6026, lng: 126.6744 }, { name: "대천역", lat: 36.3294, lng: 126.5852 }, { name: "장항역", lat: 36.0028, lng: 126.7103 },
+            // 충북선 (신규)
+            { name: "청주역", lat: 36.6436, lng: 127.3773 }, { name: "충주역", lat: 36.9818, lng: 127.9142 },
+            // 경전선 (신규)
+            { name: "창원중앙역", lat: 35.2361, lng: 128.6918 }, { name: "마산역", lat: 35.2351, lng: 128.5815 }, { name: "진주역", lat: 35.1485, lng: 128.1176 },
+            // 중앙/영동/경북선/동해선
+            { name: "원주역", lat: 37.3117, lng: 127.9461 }, { name: "제천역", lat: 37.1287, lng: 128.2012 }, { name: "단양역", lat: 36.9696, lng: 128.3499 }, { name: "풍기역", lat: 36.8722, lng: 128.5275 },
+            { name: "영주역", lat: 36.8094, lng: 128.6258 }, { name: "안동역", lat: 36.5756, lng: 128.6756 }, { name: "의성역", lat: 36.3484, lng: 128.6946 }, { name: "경주역", lat: 35.7972, lng: 129.1394 },
+            { name: "태백역", lat: 37.1741, lng: 128.9902 }, { name: "동해역", lat: 37.4915, lng: 129.1129 }, { name: "상주역", lat: 36.4172, lng: 128.1724 }, { name: "점촌역", lat: 36.5828, lng: 128.1812 },
+            { name: "태화강역", lat: 35.5397, lng: 129.3533 }, { name: "포항역", lat: 36.0719, lng: 129.3418 }
         ];
 
-        // 지도에 기차역 마커 찍기 (클릭 시 역 이름 팝업)
         stations.forEach(function(station) {
-            L.marker([station.lat, station.lng]).addTo(map)
-             .bindPopup(`<div class="info-window">🚉 ${station.name}</div>`);
+            L.marker([station.lat, station.lng]).addTo(map).bindPopup(`<div class="info-window">Item 🚂 ${station.name}</div>`);
         });
 
+        // 🔵 1. 경부선 (블루)
+        L.polyline([[37.5546, 126.9706], [37.5298, 126.9648], [37.5164, 126.9063], [37.2659, 126.9999], [36.9922, 127.0861], [36.8090, 127.1492], [36.7944, 127.1043], [36.6202, 127.3275], [36.5922, 127.2996], [36.3323, 127.4342], [36.1751, 127.7834], [36.1232, 128.1158], [36.1130, 128.1818], [36.1284, 128.3308], [35.8799, 128.6285], [35.4746, 128.7716], [35.2123, 128.9964], [35.1152, 129.0422]], { color: '#1e40af', weight: 6, opacity: 0.9 }).addTo(map);
 
-        // 4. [요청 반영] 노선별 굵은 실선 연결 및 색상 커스텀 구분
-        
-        // 🔵 1. 경부선 노선 (블루)
-        var gyeongbuPath = [
-            [37.5546, 126.9706], [37.5298, 126.9648], [37.5164, 126.9063], [37.2659, 126.9999],
-            [36.9922, 127.0861], [36.8090, 127.1492], [36.7944, 127.1043], [36.6202, 127.3275],
-            [36.5922, 127.2996], [36.3323, 127.4342], [36.1751, 127.7834], [36.1232, 128.1158],
-            [36.1130, 128.1818], [36.1284, 128.3308], [35.8799, 128.6285], [35.4746, 128.7716],
-            [35.2123, 128.9964], [35.1152, 129.0422]
-        ];
-        L.polyline(gyeongbuPath, { color: '#1e40af', weight: 6, opacity: 0.9 }).addTo(map);
+        // 🟢 2. 호남선 (초록)
+        L.polyline([[36.6202, 127.3275], [36.3116, 127.2141], [36.3228, 127.4039], [36.2132, 127.0984], [35.9409, 126.9429], [35.5683, 126.8426], [35.2974, 126.7847], [35.1345, 126.7912], [35.0142, 126.7169], [34.7911, 126.3864]], { color: '#10b981', weight: 6, opacity: 0.9 }).addTo(map);
 
-        // 🟢 2. 호남선 노선 (초록)
-        var honamPath = [
-            [36.6202, 127.3275], [36.3116, 127.2141], [36.3228, 127.4039], [36.2132, 127.0984],
-            [35.9409, 126.9429], [35.5683, 126.8426], [35.2974, 126.7847], [35.1345, 126.7912],
-            [35.0142, 126.7169], [34.7911, 126.3864]
-        ];
-        L.polyline(honamPath, { color: '#10b981', weight: 6, opacity: 0.9 }).addTo(map);
+        // 🟠 3. 전라선 (오렌지)
+        L.polyline([[35.9409, 126.9429], [35.8497, 127.1619], [35.4225, 127.3752], [35.2818, 127.3015], [35.1631, 127.4721], [34.9456, 127.5034], [34.7709, 127.6534], [34.7525, 127.7458]], { color: '#f97316', weight: 6, opacity: 0.9 }).addTo(map);
 
-        // 🟠 3. 전라선 노선 (오렌지)
-        var jeollaPath = [
-            [35.9409, 126.9429], [35.8497, 127.1619], [35.4225, 127.3752], [35.2818, 127.3015],
-            [35.1631, 127.4721], [34.9456, 127.5034], [34.7709, 127.6534], [34.7525, 127.7458]
-        ];
-        L.polyline(jeollaPath, { color: '#f97316', weight: 6, opacity: 0.9 }).addTo(map);
+        // 🟣 4. 강릉선/경강선 (보라)
+        L.polyline([[37.5546, 126.9706], [37.5801, 127.0451], [37.4927, 127.4918], [37.3820, 127.8593], [37.3619, 127.8924], [37.4994, 127.9944], [37.5144, 128.2166], [37.5459, 128.3986], [37.6375, 128.5639], [37.7628, 128.8985]], { color: '#8b5cf6', weight: 6, opacity: 0.9 }).addTo(map);
 
-        // 🟣 4. 강릉선/경강선 노선 (보라)
-        var gangneungPath = [
-            [37.5546, 126.9706], [37.5801, 127.0451], [37.4927, 127.4918], [37.3820, 127.8593],
-            [37.3619, 127.8924], [37.4994, 127.9944], [37.5144, 128.2166], [37.5459, 128.3986],
-            [37.6375, 128.5639], [37.7628, 128.8985]
-        ];
-        L.polyline(gangneungPath, { color: '#8b5cf6', weight: 6, opacity: 0.9 }).addTo(map);
+        // 🟡 5. 장항선 (노란색)
+        L.polyline([[36.8090, 127.1492], [36.7815, 127.0048], [36.6026, 126.6744], [36.3294, 126.5852], [36.0028, 126.7103], [35.9409, 126.9429]], { color: '#eab308', weight: 6, opacity: 0.9 }).addTo(map);
 
-        // 🟤 5. 중앙선/영동선 노선 (갈색 계열)
-        var jungangPath = [
-            [37.3820, 127.8593], [37.3117, 127.9461], [37.1287, 128.2012], [36.9696, 128.3499],
-            [36.8722, 128.5275], [36.8094, 128.6258], [36.5756, 128.6756], [36.3484, 128.6946],
-            [35.8799, 128.6285], [35.7972, 129.1394]
-        ];
-        var yeongdongPath = [
-            [37.1287, 128.2012], [37.1741, 128.9902], [37.4915, 129.1129]
-        ];
-        L.polyline(jungangPath, { color: '#a16207', weight: 6, opacity: 0.9 }).addTo(map);
-        L.polyline(yeongdongPath, { color: '#a16207', weight: 6, opacity: 0.9 }).addTo(map);
+        // 🔴 6. 경전선 (빨간색)
+        L.polyline([[35.4746, 128.7716], [35.2361, 128.6918], [35.2351, 128.5815], [35.1485, 128.1176], [34.9456, 127.5034], [35.1345, 126.7912]], { color: '#dc2626', weight: 6, opacity: 0.9 }).addTo(map);
 
-        // 앱이 실행되면 자동으로 기사님 위치 찾기 작동
+        // 🧼 7. 충북선 (청록색)
+        L.polyline([[36.5922, 127.2996], [36.6436, 127.3773], [36.9818, 127.9142], [37.1287, 128.2012]], { color: '#0d9488', weight: 6, opacity: 0.9 }).addTo(map);
+
+        // 🟤 8. 중앙/영동/경북선/동해남부선 내륙 연계망 (갈색)
+        L.polyline([[37.3820, 127.8593], [37.3117, 127.9461], [37.1287, 128.2012], [36.9696, 128.3499], [36.8722, 128.5275], [36.8094, 128.6258], [36.5756, 128.6756], [36.3484, 128.6946], [35.8799, 128.6285], [35.7972, 129.1394], [35.5397, 129.3533], [35.1152, 129.0422]], { color: '#a16207', weight: 6, opacity: 0.9 }).addTo(map);
+        L.polyline([[37.1287, 128.2012], [37.1741, 128.9902], [37.4915, 129.1129]], { color: '#a16207', weight: 6, opacity: 0.9 }).addTo(map); // 영동선 구간
+        L.polyline([[36.8094, 128.6258], [36.5828, 128.1812], [36.4172, 128.1724], [36.1232, 128.1158]], { color: '#a16207', weight: 6, opacity: 0.9 }).addTo(map); // 경북선 구간
+        L.polyline([[35.7972, 129.1394], [36.0719, 129.3418]], { color: '#a16207', weight: 6, opacity: 0.9 }).addTo(map); // 동해선 포항 구간
+
         window.onload = function() {
             setTimeout(findMyLocation, 500);
         };
