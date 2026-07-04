@@ -3,15 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>전국 철도 노선도 (탁송용)</title>
+    <title>탁송기사용 전국 철도 노선도</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Malgun Gothic', sans-serif; overflow: hidden; }
         #map { width: 100%; height: 100%; z-index: 1; }
         
         /* 정보창 및 버튼 스타일 */
-        .info-window { padding: 10px; min-width: 150px; text-align: center; }
+        .info-window { padding: 5px; min-width: 140px; text-align: center; }
         .station-title { font-weight: bold; font-size: 16px; margin-bottom: 8px; color: #1e293b; }
-        .btn-timetable { background: #2563eb; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold; width: 100%; }
+        .btn-timetable { background: #ff4a8d; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold; width: 100%; }
         
         /* 시간표 출력용 하단 모달 sheet (모바일 최적화) */
         #timetable-sheet { 
@@ -30,8 +32,10 @@
         th, td { padding: 10px; border-bottom: 1px solid #edf2f7; }
         th { background: #f1f5f9; color: #475569; font-weight: bold; position: sticky; top: 0; }
         .loading { text-align: center; padding: 30px; color: #64748b; }
+        
+        /* 지도 팝업 여백 조정 */
+        .leaflet-popup-content { margin: 8px; }
     </style>
-    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=9a3308dd26dbcbb1c240aefaf63a7d61"></script>
 </head>
 <body>
 
@@ -57,47 +61,69 @@
     </div>
 
     <script>
-        // 2. 지도 생성 (전국이 다 보이도록 대전 중심으로 레벨 11 설정)
-        var mapContainer = document.getElementById('map');
-        var mapOption = { center: new kakao.maps.LatLng(36.3504, 127.3845), level: 11 }; 
-        var map = new kakao.maps.Map(mapContainer, mapOption);
+        // 1. 지도 생성 (대한민국 중심 대전 부근으로 고정, 확대 레벨 7.5)
+        var map = L.map('map').setView([36.25, 127.6], 7.5);
+        
+        // 이미지처럼 복잡한 배경을 지우고 철도 노선이 돋보이게 하는 '깔끔한 그레이/화이트 타일' 지도 적용
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            attribution: '© OpenStreetMap © CARTO'
+        }).addTo(map);
 
-        // 3. 주요 KTX / 무궁화호 역 데이터 샘플
+        // 2. 주요 역 데이터 (위도, 경도, 국토부코드)
         var stations = [
             { name: "서울역", lat: 37.5546, lng: 126.9706, code: "NAT010032" },
             { name: "용산역", lat: 37.5298, lng: 126.9648, code: "NAT010017" },
             { name: "수원역", lat: 37.2659, lng: 126.9999, code: "NAT011503" },
+            { name: "천안아산역", lat: 36.7944, lng: 127.1043, code: "NAT010049" },
+            { name: "오송역", lat: 36.6202, lng: 127.3275, code: "NAT010055" },
             { name: "대전역", lat: 36.3323, lng: 127.4342, code: "NAT011668" },
             { name: "동대구역", lat: 35.8799, lng: 128.6285, code: "NAT014122" },
             { name: "부산역", lat: 35.1152, lng: 129.0422, code: "NAT014445" },
             { name: "광주송정역", lat: 35.1345, lng: 126.7912, code: "NAT011608" },
+            { name: "목포역", lat: 34.7911, lng: 126.3864, code: "NAT013473" },
             { name: "순천역", lat: 34.9456, lng: 127.5034, code: "NAT013217" }
         ];
 
-        // ★ 수정 완료: 공공데이터 키의 줄바꿈을 없애고 한 줄로 길게 연결했습니다.
+        // 기사님의 공공데이터 키
         var PUBLIC_DATA_KEY = "e5882e03252928b4025a4146da909c9922b30ee395de3e4de79874a435f895cd";
 
-        // 4. 마커 생성 및 클릭 이벤트 바인딩
+        // 3. 역 마커 생성 및 클릭 이벤트 연결
         stations.forEach(function(station) {
-            var marker = new kakao.maps.Marker({
-                position: new kakao.maps.LatLng(station.lat, station.lng),
-                map: map
-            });
+            var marker = L.marker([station.lat, station.lng]).addTo(map);
 
-            var infowindow = new kakao.maps.InfoWindow({
-                content: `<div class="info-window">
+            var content = `<div class="info-window">
                             <div class="station-title">${station.name}</div>
                             <button class="btn-timetable" onclick="fetchTimetable('${station.name}', '${station.code}')">시간표 보기</button>
-                          </div>`,
-                removable: true
-            });
+                          </div>`;
 
-            kakao.maps.event.addListener(marker, 'click', function() {
-                infowindow.open(map, marker);  
-            });
+            marker.bindPopup(content);
         });
 
-        // 5. 국토부 API를 통한 실시간 역별 출도착 시간표 조회 함수
+        // 4. ★ 보내주신 이미지처럼 선명한 굵은 핑크색 철도 노선 그리기
+        // [경부선 라인 좌표 세팅]
+        var gyeongbuLinePath = [
+            [37.5546, 126.9706], // 서울역
+            [37.2659, 126.9999], // 수원역
+            [36.7944, 127.1043], // 천안아산역
+            [36.6202, 127.3275], // 오송역
+            [36.3323, 127.4342], // 대전역
+            [35.8799, 128.6285], // 동대구역
+            [35.1152, 129.0422]  // 부산역
+        ];
+
+        // [호남선 라인 좌표 세팅]
+        var honamLinePath = [
+            [36.6202, 127.3275], // 오송역 분기점
+            [35.1345, 126.7912], // 광주송정역
+            [34.7911, 126.3864]  // 목포역
+        ];
+
+        // 이미지와 똑같은 두께와 색상으로 선 그리기
+        L.polyline(gyeongbuLinePath, { color: '#ff4a8d', weight: 7, opacity: 0.8 }).addTo(map);
+        L.polyline(honamLinePath, { color: '#ff4a8d', weight: 7, opacity: 0.8 }).addTo(map);
+
+
+        // 5. 국토교통부 실시간 시간표 조회 함수
         function fetchTimetable(stationName, stationCode) {
             document.getElementById('sheet-title').innerText = stationName + " 당일 출발 열차";
             document.getElementById('sheet-content').innerHTML = '<div class="loading">실시간 시간표 데이터를 불러오는 중...</div>';
@@ -110,7 +136,6 @@
             var ymd = yyyy + mm + dd;
 
             var baseUrl = `http://apis.data.go.kr/1613000/TrainInfoService/getChgTrainSttnAcptnSlprTrainSttnList?serviceKey=${encodeURIComponent(PUBLIC_DATA_KEY)}&nodeId=${stationCode}&searchDate=${ymd}&numOfRows=50&pageNo=1&_type=json`;
-            
             var proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(baseUrl)}`;
 
             fetch(proxyUrl)
@@ -123,7 +148,6 @@
                     }
 
                     if (!Array.isArray(items)) { items = [items]; }
-
                     items.sort((a, b) => a.depplctime - b.depplctime);
 
                     var html = `<table>
@@ -154,7 +178,7 @@
                 })
                 .catch(err => {
                     console.error(err);
-                    document.getElementById('sheet-content').innerHTML = '<div class="loading">데이터 로드 실패 (인증키 활성화에 최대 1~2시간이 소요될 수 있습니다).</div>';
+                    document.getElementById('sheet-content').innerHTML = '<div class="loading">데이터 로드 실패 (잠시 후 다시 시도해 주세요).</div>';
                 });
         }
 
