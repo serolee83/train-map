@@ -31,13 +31,13 @@
         th { background: #f1f5f9; color: #475569; font-weight: bold; position: sticky; top: 0; }
         .loading { text-align: center; padding: 30px; color: #64748b; }
     </style>
-    <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=9a3308dd26dbcbb1c240aefaf63a7d61"></script>
+    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=9a3308dd26dbcbb1c240aefaf63a7d61"></script>
 </head>
 <body>
 
     <script>
         var pw = prompt("접근 비밀번호를 입력하세요:");
-        if (pw !== "1234") { // 원하시는 비밀번호로 변경하세요
+        if (pw !== "1234") { 
             alert("올바르지 않은 접근입니다.");
             document.body.innerHTML = "";
             window.stop();
@@ -62,7 +62,7 @@
         var mapOption = { center: new kakao.maps.LatLng(36.3504, 127.3845), level: 11 }; 
         var map = new kakao.maps.Map(mapContainer, mapOption);
 
-        // 3. 주요 KTX / 무궁화호 역 데이터 샘플 (필요시 위도/경도/국토부코드를 추가하시면 됩니다)
+        // 3. 주요 KTX / 무궁화호 역 데이터 샘플
         var stations = [
             { name: "서울역", lat: 37.5546, lng: 126.9706, code: "NAT010032" },
             { name: "용산역", lat: 37.5298, lng: 126.9648, code: "NAT010017" },
@@ -74,9 +74,8 @@
             { name: "순천역", lat: 34.9456, lng: 127.5034, code: "NAT013217" }
         ];
 
-        // 공공데이터포털에서 받은 [일반 인증키 (Decoding)]를 여기에 입력하세요.
-        var PUBLIC_DATA_KEY = "e5882e03252928b4025a4146da909c9922b30ee395de3e4de79874a435f895cd
-";
+        // ★ 수정 완료: 공공데이터 키의 줄바꿈을 없애고 한 줄로 길게 연결했습니다.
+        var PUBLIC_DATA_KEY = "e5882e03252928b4025a4146da909c9922b30ee395de3e4de79874a435f895cd";
 
         // 4. 마커 생성 및 클릭 이벤트 바인딩
         stations.forEach(function(station) {
@@ -104,17 +103,14 @@
             document.getElementById('sheet-content').innerHTML = '<div class="loading">실시간 시간표 데이터를 불러오는 중...</div>';
             document.getElementById('timetable-sheet').classList.add('open');
 
-            // 오늘 날짜 구하기 (YYYYMMDD 형식)
             var today = new Date();
             var yyyy = today.getFullYear();
             var mm = String(today.getMonth() + 1).padStart(2, '0');
             var dd = String(today.getDate()).padStart(2, '0');
             var ymd = yyyy + mm + dd;
 
-            // 국토교통부 열차정보 서비스 URL (역별 출도착 주소)
             var baseUrl = `http://apis.data.go.kr/1613000/TrainInfoService/getChgTrainSttnAcptnSlprTrainSttnList?serviceKey=${encodeURIComponent(PUBLIC_DATA_KEY)}&nodeId=${stationCode}&searchDate=${ymd}&numOfRows=50&pageNo=1&_type=json`;
             
-            // 브라우저 CORS 에러 우회를 위한 프록시 서버 통과 처리
             var proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(baseUrl)}`;
 
             fetch(proxyUrl)
@@ -126,10 +122,8 @@
                         return;
                     }
 
-                    // 데이터가 단건일 경우 배열로 예외 처리
                     if (!Array.isArray(items)) { items = [items]; }
 
-                    // 출발 시간 순으로 정렬
                     items.sort((a, b) => a.depplctime - b.depplctime);
 
                     var html = `<table>
@@ -144,7 +138,6 @@
                                     <tbody>`;
 
                     items.forEach(item => {
-                        // HHMM 형식 포맷팅
                         var timeStr = String(item.depplctime);
                         var formattedTime = timeStr.substring(8, 10) + ":" + timeStr.substring(10, 12);
 
