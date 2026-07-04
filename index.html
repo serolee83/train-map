@@ -38,6 +38,9 @@
         th { background: #f1f5f9; color: #475569; font-weight: bold; position: sticky; top: 0; }
         .loading { text-align: center; padding: 30px; color: #64748b; font-weight: bold; }
         .btn-back { background: #64748b; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; margin-bottom: 10px; cursor: pointer; }
+        
+        /* 에러 로그 박스 */
+        .error-log { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 11px; white-space: pre-wrap; overflow-x: auto; text-align: left; margin-top: 10px; }
     </style>
 </head>
 <body>
@@ -63,15 +66,19 @@
     </div>
 
     <script>
+        // HTML 특수문자 변환 함수 (디버거용)
+        function escapeHtml(str) {
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+
         // 1. 지도 생성 (대한민국 중심부 설정)
         var map = L.map('map').setView([36.25, 127.6], 7.5);
         
-        // 지명을 100% 한글 정식 명칭으로 뿌려주는 지도 레이어
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors'
         }).addTo(map);
 
-        // 2. 주요 역 데이터 (기사님이 승인받으신 정식 Node ID 코드 반영)
+        // 2. 주요 역 데이터
         var stations = [
             { name: "서울역", lat: 37.5546, lng: 126.9706, code: "NAT010032" },
             { name: "용산역", lat: 37.5298, lng: 126.9648, code: "NAT010017" },
@@ -90,11 +97,10 @@
             { name: "여수엑스포역", lat: 34.7525, lng: 127.7458, code: "NAT013239" }
         ];
 
-        // 기사님의 마이페이지에 확인된 인증키
         var PUBLIC_DATA_KEY = "e5882e03252928b4025a4146da909c9922b30ee395de3e4de79874a435f895cd";
         var currentDepStation = null;
 
-        // 3. 역 마커 생성 및 클릭 이벤트
+        // 3. 역 마커 생성
         stations.forEach(function(station) {
             var marker = L.marker([station.lat, station.lng]).addTo(map);
             var content = `<div class="info-window">
@@ -104,7 +110,7 @@
             marker.bindPopup(content);
         });
 
-        // 4. 이미지와 똑같은 두께와 색상(핑크색)으로 철도 노선망 연결
+        // 4. 핑크색 철도 노선망 연결
         var gyeongbuLine = [[37.5546, 126.9706], [37.5164, 126.9063], [37.2659, 126.9999], [36.7944, 127.1043], [36.6202, 127.3275], [36.3323, 127.4342], [35.8799, 128.6285], [35.1152, 129.0422]];
         var honamLine = [[36.6202, 127.3275], [35.9409, 126.9429], [35.1345, 126.7912], [34.7911, 126.3864]];
         var jeollaLine = [[35.9409, 126.9429], [35.8497, 127.1619], [34.9456, 127.5034], [34.7525, 127.7458]];
@@ -113,12 +119,11 @@
         L.polyline(honamLine, { color: '#ff4a8d', weight: 7, opacity: 0.85 }).addTo(map);
         L.polyline(jeollaLine, { color: '#ff4a8d', weight: 7, opacity: 0.85 }).addTo(map);
 
-        // 5. 하단 창 열고 목적지 선택 버튼 배치하기
+        // 5. 목적지 선택 버튼 배치
         function openDestSelection(depName, depCode) {
             currentDepStation = { name: depName, code: depCode };
             document.getElementById('sheet-title').innerText = `[${depName}] 출발 ➡️ 목적지 선택`;
             
-            // 본인 역을 제외한 목적지 버튼 리스트 생성
             var html = '<div style="font-size:14px; color:#64748b; margin-bottom:10px;">이동하실 목적지 역을 선택하세요:</div>';
             html += '<div class="dest-grid">';
             stations.forEach(function(st) {
@@ -132,7 +137,7 @@
             document.getElementById('timetable-sheet').classList.add('open');
         }
 
-        // 6. 승인받으신 정식 API(TrainInfo/GetStrtpntAlocFndTrainInfo) 호출하여 실시간 조회하기
+        // 6. 실시간 데이터 호출 및 모바일 화면 디버거 연동
         function fetchTrainData(arrCode, arrName) {
             document.getElementById('sheet-title').innerText = `${currentDepStation.name} ➡️ ${arrName} 열차`;
             document.getElementById('sheet-content').innerHTML = '<div class="loading">🔄 실시간 기차 정보를 가져오는 중...</div>';
@@ -140,28 +145,39 @@
             var today = new Date();
             var ymd = today.getFullYear() + String(today.getMonth() + 1).padStart(2, '0') + String(today.getDate()).padStart(2, '0');
 
-            // ★ 수정 완료: 승인받으신 정확한 End Point 주소 및 2번 상세기능 함수명 매칭
             var baseUrl = `https://apis.data.go.kr/1613000/TrainInfo/GetStrtpntAlocFndTrainInfo?serviceKey=${encodeURIComponent(PUBLIC_DATA_KEY)}&depPlaceId=${currentDepStation.code}&arrPlaceId=${arrCode}&searchDate=${ymd}&numOfRows=60&pageNo=1&_type=json`;
-            var proxyUrl = `https://corsproxy.io/?${encodeURIComponent(baseUrl)}`;
+            
+            // raw 모드로 받아오기 위해 가장 확실한 allorigins 프록시 사용
+            var proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(baseUrl)}`;
 
             fetch(proxyUrl)
-                .then(res => res.json())
-                .then(data => {
+                .then(res => {
+                    if (!res.ok) throw new Error(`프록시 서버 응답 실패 (상태코드: ${res.status})`);
+                    return res.text(); // 어떤 응답이든 먼저 문자열 텍스트로 가로챔
+                })
+                .then(text => {
+                    var backBtn = `<button class="btn-back" onclick="openDestSelection('${currentDepStation.name}', '${currentDepStation.code}')">⬅️ 목적지 다시 선택</button>`;
+                    
+                    // 만약 정부 서버에서 에러가 나서 XML문서(<)가 날아온 경우 화면에 로그 출력
+                    if (text.trim().startsWith('<')) {
+                        document.getElementById('sheet-content').innerHTML = backBtn + `
+                            <div class="loading" style="color:#ef4444;">❌ 정부 공공데이터 서버 에러 반환</div>
+                            <div class="error-log">${escapeHtml(text)}</div>`;
+                        return;
+                    }
+
+                    var data = JSON.parse(text);
                     var items = data.response?.body?.items?.item;
                     
-                    var html = `<button class="btn-back" onclick="openDestSelection('${currentDepStation.name}', '${currentDepStation.code}')">⬅️ 목적지 다시 선택</button>`;
-                    
                     if (!items) {
-                        html += '<div class="loading">직통 운행 열차가 없거나 오늘 운행이 종료되었습니다.</div>';
-                        document.getElementById('sheet-content').innerHTML = html;
+                        document.getElementById('sheet-content').innerHTML = backBtn + '<div class="loading">직통 운행 열차가 없거나 오늘 운행이 종료되었습니다.</div>';
                         return;
                     }
 
                     if (!Array.isArray(items)) { items = [items]; }
-                    // 출발 시간순 정렬
                     items.sort((a, b) => a.depplctime - b.depplctime);
 
-                    html += `<table>
+                    var html = backBtn + `<table>
                                 <thead>
                                     <tr>
                                         <th>열차 종류</th>
@@ -192,7 +208,8 @@
                     console.error(err);
                     document.getElementById('sheet-content').innerHTML = `
                         <button class="btn-back" onclick="openDestSelection('${currentDepStation.name}', '${currentDepStation.code}')">⬅️ 뒤로가기</button>
-                        <div class="loading" style="color:#ef4444;">❌ 데이터 연결 실패<br><br><span style="font-size:13px; font-weight:normal; color:#64748b;">정부 서버 키 동기화가 아직 진행 중일 수 있습니다. 오늘 새로 신청한 키는 활성화까지 최대 1시간이 소요됩니다.</span></div>`;
+                        <div class="loading" style="color:#ef4444;">❌ 네트워크 통신 또는 코드 실행 에러</div>
+                        <div class="error-log">에러 메시지: ${err.message}</div>`;
                 });
         }
 
