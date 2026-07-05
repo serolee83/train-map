@@ -6,11 +6,17 @@
     <title>탁송기사용 전국 철도망 지도 (전 노선 최종완전판)</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Malgun Gothic', sans-serif; overflow: hidden; }
         #map { width: 100%; height: 100%; z-index: 1; }
         
-        .info-window { padding: 3px; text-align: center; font-weight: bold; font-size: 14px; color: #1e293b; }
+        .info-window { padding: 5px; text-align: center; font-weight: bold; font-size: 14px; color: #1e293b; }
+        .fare-info { margin-top: 8px; font-size: 13px; font-weight: normal; text-align: left; background: #f8fafc; padding: 8px; border-radius: 4px; border: 1px solid #e2e8f0; }
+        .fare-item { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .fare-price { font-weight: bold; color: #0f172a; }
+        .select-btn { margin-top: 8px; width: 100%; padding: 6px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .select-btn:hover { background: #1d4ed8; }
         
         /* 카카오맵 스타일 오른쪽 아래 내 위치 버튼 */
         .btn-mylocation { 
@@ -29,9 +35,24 @@
             box-shadow: 0 4px 10px rgba(0,0,0,0.15); font-size: 10.5px; font-weight: bold; line-height: 1.6;
         }
         .legend-color { display: inline-block; width: 25px; height: 6px; margin-right: 8px; vertical-align: middle; border-radius: 3px; }
+        
+        /* 상단 상태바 */
+        .status-bar {
+            position: absolute; top: 15px; left: 50%; transform: translateX(-50%); z-index: 999;
+            background: rgba(255, 255, 255, 0.95); padding: 10px 20px; border-radius: 30px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2); font-size: 14px; font-weight: bold; color: #1e40af;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .reset-btn {
+            background: #ef4444; color: white; border: none; border-radius: 20px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+        }
     </style>
 </head>
 <body>
+
+    <div class="status-bar" id="statusBar">
+        <span>출발역을 선택해주세요</span>
+    </div>
 
     <button class="btn-mylocation" onclick="findMyLocation()">📍 내 위치로</button>
 
@@ -62,6 +83,125 @@
         var myLocationMarker = null;
         var myLocationCircle = null;
 
+        // 운임 데이터 로드 로직
+        const excelFiles = [
+            { name: 'KTX', path: 'KTX 운임표(2026.04.15.부터).xls' },
+            { name: 'ITX', path: '일반열차(ITX-마음, ITX-새마을, 새마을호) 운임표(2025.12.30.부터).xlsx' },
+            { name: '무궁화', path: '일반열차(무궁화호, 누리로) 운임표(2025.9.27.부터).xls' }
+        ];
+
+        let fareDatabase = {};
+        let selectedDepStation = null;
+        let stationMarkers = {};
+
+        async function loadFareData() {
+            document.getElementById('statusBar').innerHTML = `<span>운임표 데이터를 불러오는 중... ⏳</span>`;
+            
+            for (let file of excelFiles) {
+                try {
+                    const res = await fetch(file.path);
+                    if (!res.ok) continue;
+                    const ab = await res.arrayBuffer();
+                    const workbook = XLSX.read(ab, { type: 'array' });
+                    
+                    // 각 시트마다 데이터 파싱 (다양한 노선이 다른 시트에 있을 수 있음)
+                    let allRows = [];
+                    workbook.SheetNames.forEach(sheetName => {
+                        const sheet = workbook.Sheets[sheetName];
+                        const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                        allRows = allRows.concat(json);
+                    });
+                    
+                    fareDatabase[file.name] = allRows;
+                } catch(e) {
+                    console.warn("데이터 로드 실패 (파일이 서버에 있는지 확인하세요):", file.name, e);
+                }
+            }
+            document.getElementById('statusBar').innerHTML = `<span>✅ 출발역을 선택해주세요</span>`;
+        }
+
+        function findFare(trainType, dep, arr) {
+            const data = fareDatabase[trainType];
+            if (!data) return null;
+            
+            let minFare = Infinity;
+
+            for (let i = 0; i < data.length; i++) {
+                const row = data[i];
+                if (!row || row.length < 4) continue;
+                
+                let colDep = String(row[1] || '').trim();
+                let colArr = String(row[2] || '').trim();
+                let fare = row[3];
+                
+                // 역 이름에서 '역' 글자 제거 및 공백 제거하여 유연하게 매칭
+                const cleanName = (name) => name.replace(/역$/, '').trim();
+                
+                if ((cleanName(colDep) === cleanName(dep) && cleanName(colArr) === cleanName(arr)) || 
+                    (cleanName(colDep) === cleanName(arr) && cleanName(colArr) === cleanName(dep))) {
+                    
+                    // 숫자인지 확인 (간혹 쉼표가 들어간 문자열일 수 있음)
+                    let fareValue = parseInt(String(fare).replace(/,/g, ''), 10);
+                    if (!isNaN(fareValue) && fareValue > 0) {
+                        if (fareValue < minFare) minFare = fareValue;
+                    }
+                }
+            }
+            return minFare === Infinity ? null : minFare;
+        }
+
+        function formatCurrency(num) {
+            return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") + '원';
+        }
+
+        function resetSelection() {
+            selectedDepStation = null;
+            document.getElementById('statusBar').innerHTML = `<span>✅ 출발역을 선택해주세요</span>`;
+            map.closePopup();
+        }
+
+        function onStationClick(stationName) {
+            if (!selectedDepStation) {
+                selectedDepStation = stationName;
+                document.getElementById('statusBar').innerHTML = `
+                    <span>출발: <b>${stationName}</b> ➡️ 도착역을 선택하세요</span>
+                    <button class="reset-btn" onclick="resetSelection()">취소</button>
+                `;
+                
+                return `<div class="info-window">🚉 ${stationName}<br><br><span style="font-weight:normal; font-size:12px; color:#64748b;">출발역으로 설정되었습니다.<br>다른 역을 클릭하여 운임을 확인하세요.</span></div>`;
+            } else {
+                if (selectedDepStation === stationName) {
+                    return `<div class="info-window">🚉 ${stationName}<br><br><span style="font-weight:normal; font-size:12px; color:#64748b;">출발역과 도착역이 같습니다.</span></div>`;
+                }
+
+                // 운임 계산
+                let ktxFare = findFare('KTX', selectedDepStation, stationName);
+                let itxFare = findFare('ITX', selectedDepStation, stationName);
+                let mugungFare = findFare('무궁화', selectedDepStation, stationName);
+
+                let fareHtml = '<div class="fare-info">';
+                let hasFare = false;
+
+                if (ktxFare) { fareHtml += `<div class="fare-item"><span>KTX:</span> <span class="fare-price">${formatCurrency(ktxFare)}</span></div>`; hasFare = true; }
+                if (itxFare) { fareHtml += `<div class="fare-item"><span>ITX/새마을:</span> <span class="fare-price">${formatCurrency(itxFare)}</span></div>`; hasFare = true; }
+                if (mugungFare) { fareHtml += `<div class="fare-item"><span>무궁화/누리:</span> <span class="fare-price">${formatCurrency(mugungFare)}</span></div>`; hasFare = true; }
+
+                if (!hasFare) {
+                    fareHtml += `<div style="text-align:center; color:#94a3b8; font-size:12px;">직통 운임 정보가 없거나<br>엑셀 파일이 없습니다.</div>`;
+                }
+                fareHtml += '</div>';
+
+                return `
+                    <div class="info-window">
+                        <div style="font-size:12px; color:#64748b;">${selectedDepStation} ➡️ ${stationName}</div>
+                        🚉 ${stationName}
+                        ${fareHtml}
+                        <button class="select-btn" onclick="resetSelection()">다른 구간 검색</button>
+                    </div>
+                `;
+            }
+        }
+
         // GPS 내 위치 트래킹
         function findMyLocation() {
             if (!navigator.geolocation) {
@@ -86,7 +226,7 @@
             alert("위치 정보를 가져오지 못했습니다. 핸드폰 GPS 위치서비스를 켜주세요.");
         });
 
-        // 2. 대한민국 정식 철도역 데이터베이스 구축 (지하철 완전 차단)
+        // 2. 대한민국 정식 철도역 데이터베이스 구축
         var stations = [
             // 경부선 계열
             { name: "서울역", lat: 37.5546, lng: 126.9706 }, { name: "용산역", lat: 37.5298, lng: 126.9648 }, { name: "영등포역", lat: 37.5164, lng: 126.9063 }, { name: "수원역", lat: 37.2659, lng: 126.9999 },
@@ -107,58 +247,44 @@
             { name: "온양온천역", lat: 36.7815, lng: 127.0048 }, { name: "홍성역", lat: 36.6026, lng: 126.6744 }, { name: "대천역", lat: 36.3294, lng: 126.5852 }, { name: "장항역", lat: 36.0028, lng: 126.7103 },
             // 충북선
             { name: "청주역", lat: 36.6436, lng: 127.3773 }, { name: "충주역", lat: 36.9818, lng: 127.9142 },
-            // 경전선 완벽 보강 (서부 경남/전남 라인 터널링)
+            // 경전선
             { name: "창원중앙역", lat: 35.2361, lng: 128.6918 }, { name: "마산역", lat: 35.2351, lng: 128.5815 }, { name: "진주역", lat: 35.1485, lng: 128.1176 }, { name: "하동역", lat: 35.0673, lng: 127.7512 }, { name: "광양역", lat: 34.9644, lng: 127.5902 }, { name: "벌교역", lat: 34.8465, lng: 127.3432 }, { name: "보성역", lat: 34.7761, lng: 127.0789 },
-            // 내륙선 (중앙/영동/경북/태백선)
+            // 내륙선
             { name: "원주역", lat: 37.3117, lng: 127.9461 }, { name: "제천역", lat: 37.1287, lng: 128.2012 }, { name: "단양역", lat: 36.9696, lng: 128.3499 }, { name: "풍기역", lat: 36.8722, lng: 128.5275 }, { name: "영주역", lat: 36.8094, lng: 128.6258 }, { name: "안동역", lat: 36.5756, lng: 128.6756 }, { name: "의성역", lat: 36.3484, lng: 128.6946 }, { name: "경주역", lat: 35.7972, lng: 129.1394 }, { name: "상주역", lat: 36.4172, lng: 128.1724 }, { name: "점촌역", lat: 36.5828, lng: 128.1812 },
             { name: "태백역", lat: 37.1741, lng: 128.9902 }, { name: "영월역", lat: 37.1822, lng: 128.4822 }, { name: "민둥산역", lat: 37.2582, lng: 128.7712 },
-            // 중부내륙 고속선 (최신 신설)
+            // 중부내륙 고속선
             { name: "판교역", lat: 37.3948, lng: 127.1112 }, { name: "부발역", lat: 37.2602, lng: 127.4902 }, { name: "문경역", lat: 36.5772, lng: 128.1142 },
-            // 동해선 전 구간 종단역 (신설 영덕, 울진, 삼척 완벽 매핑)
+            // 동해선
             { name: "태화강역", lat: 35.5397, lng: 129.3533 }, { name: "포항역", lat: 36.0719, lng: 129.3418 }, { name: "영덕역", lat: 36.4154, lng: 129.3582 }, { name: "울진역", lat: 36.9855, lng: 129.3942 }, { name: "삼척역", lat: 37.4422, lng: 129.1712 }, { name: "동해역", lat: 37.4915, lng: 129.1129 }, { name: "묵호역", lat: 37.5503, lng: 129.1121 }, { name: "정동진역", lat: 37.6916, lng: 129.0332 }
         ];
 
         // 지도상 마커 출력
         stations.forEach(function(station) {
-            L.marker([station.lat, station.lng]).addTo(map).bindPopup(`<div class="info-window">🚉 ${station.name}</div>`);
+            let marker = L.marker([station.lat, station.lng]).addTo(map);
+            
+            marker.on('click', function(e) {
+                let popupContent = onStationClick(station.name);
+                marker.bindPopup(popupContent).openPopup();
+            });
         });
 
         // 3. 실시간 대조 기반 전국 간선 철도선 연결
-
-        // 🔵 1. 경부선 (블루)
         L.polyline([[37.5546, 126.9706], [37.5298, 126.9648], [37.5164, 126.9063], [37.2659, 126.9999], [36.9922, 127.0861], [36.8090, 127.1492], [36.7944, 127.1043], [36.6202, 127.3275], [36.5922, 127.2996], [36.3323, 127.4342], [36.1751, 127.7834], [36.1232, 128.1158], [36.1130, 128.1818], [36.1284, 128.3308], [35.8799, 128.6285], [35.4746, 128.7716], [35.2123, 128.9964], [35.1152, 129.0422]], { color: '#1e40af', weight: 6, opacity: 0.9 }).addTo(map);
-
-        // 🟢 2. 호남선 (초록)
         L.polyline([[36.6202, 127.3275], [36.3116, 127.2141], [36.3228, 127.4039], [36.2132, 127.0984], [35.9409, 126.9429], [35.5683, 126.8426], [35.2974, 126.7847], [35.1345, 126.7912], [35.0142, 126.7169], [34.7911, 126.3864]], { color: '#10b981', weight: 6, opacity: 0.9 }).addTo(map);
-
-        // 🟠 3. 전라선 (오렌지)
         L.polyline([[35.9409, 126.9429], [35.8497, 127.1619], [35.4225, 127.3752], [35.2818, 127.3015], [35.1631, 127.4721], [34.9456, 127.5034], [34.7709, 127.6534], [34.7525, 127.7458]], { color: '#f97316', weight: 6, opacity: 0.9 }).addTo(map);
-
-        // 🟣 4. 강릉선/경강선 (보라)
         L.polyline([[37.5546, 126.9706], [37.5801, 127.0451], [37.4927, 127.4918], [37.3820, 127.8593], [37.3619, 127.8924], [37.4994, 127.9944], [37.5144, 128.2166], [37.5459, 128.3986], [37.6375, 128.5639], [37.7628, 128.8985]], { color: '#8b5cf6', weight: 6, opacity: 0.9 }).addTo(map);
-
-        // 🟡 5. 장항선 (노란색)
         L.polyline([[36.8090, 127.1492], [36.7815, 127.0048], [36.6026, 126.6744], [36.3294, 126.5852], [36.0028, 126.7103], [35.9409, 126.9429]], { color: '#eab308', weight: 6, opacity: 0.9 }).addTo(map);
-
-        // 🔴 6. 경전선 완전 관통 (빨간색) - 삼랑진부터 마산, 진주, 순천을 거쳐 광주송정까지 남해선 연결 완비!
         L.polyline([[35.4746, 128.7716], [35.2361, 128.6918], [35.2351, 128.5815], [35.1485, 128.1176], [35.0673, 127.7512], [34.9644, 127.5902], [34.9456, 127.5034], [34.8465, 127.3432], [34.7761, 127.0789], [35.1345, 126.7912]], { color: '#dc2626', weight: 6, opacity: 0.9 }).addTo(map);
-
-        // 🧼 7. 충북선 (청록색)
         L.polyline([[36.5922, 127.2996], [36.6436, 127.3773], [36.9818, 127.9142], [37.1287, 128.2012]], { color: '#0d9488', weight: 6, opacity: 0.9 }).addTo(map);
-
-        // 🟤 8. 내륙종관선 (중앙/영동/경북/태백선) 합산망 (갈색)
-        L.polyline([[37.3820, 127.8593], [37.3117, 127.9461], [37.1287, 128.2012], [36.9696, 128.3499], [36.8722, 128.5275], [36.8094, 128.6258], [36.5756, 128.6756], [36.3484, 128.6946], [35.8799, 128.6285], [35.7972, 129.1394], [35.5397, 129.3533], [35.1152, 129.0422]], { color: '#a16207', weight: 6, opacity: 0.9 }).addTo(map); // 중앙선 본선
-        L.polyline([[36.8094, 128.6258], [36.5828, 128.1812], [36.4172, 128.1724], [36.1232, 128.1158]], { color: '#a16207', weight: 6, opacity: 0.9 }).addTo(map); // 경북선 영주-김천
-        L.polyline([[37.1287, 128.2012], [37.1822, 128.4822], [37.2582, 128.7712], [37.1741, 128.9902], [37.4915, 129.1129]], { color: '#a16207', weight: 6, opacity: 0.9 }).addTo(map); // 태백선
-
-        // 🔮 9. 중부내륙 고속선 (마젠타 핑크) - 판교에서 이천(부발)을 지나 충주, 문경까지 직결
+        L.polyline([[37.3820, 127.8593], [37.3117, 127.9461], [37.1287, 128.2012], [36.9696, 128.3499], [36.8722, 128.5275], [36.8094, 128.6258], [36.5756, 128.6756], [36.3484, 128.6946], [35.8799, 128.6285], [35.7972, 129.1394], [35.5397, 129.3533], [35.1152, 129.0422]], { color: '#a16207', weight: 6, opacity: 0.9 }).addTo(map);
+        L.polyline([[36.8094, 128.6258], [36.5828, 128.1812], [36.4172, 128.1724], [36.1232, 128.1158]], { color: '#a16207', weight: 6, opacity: 0.9 }).addTo(map);
+        L.polyline([[37.1287, 128.2012], [37.1822, 128.4822], [37.2582, 128.7712], [37.1741, 128.9902], [37.4915, 129.1129]], { color: '#a16207', weight: 6, opacity: 0.9 }).addTo(map);
         L.polyline([[37.3948, 127.1112], [37.2602, 127.4902], [36.9818, 127.9142], [36.5772, 128.1142]], { color: '#d946ef', weight: 6, opacity: 0.95 }).addTo(map);
-
-        // 🌐 10. 동해선 종단 대완성선 (시안 블루) - 부산 부전역에서 울산, 포항, 영덕, 울진, 삼척, 동해, 정동진, 강릉까지 원스톱 동해안선 직결!
         L.polyline([[35.1152, 129.0422], [35.5397, 129.3533], [35.7972, 129.1394], [36.0719, 129.3418], [36.4154, 129.3582], [36.9855, 129.3942], [37.4422, 129.1712], [37.4915, 129.1129], [37.5503, 129.1121], [37.6916, 129.0332], [37.7628, 128.8985]], { color: '#06b6d4', weight: 6, opacity: 0.95 }).addTo(map);
 
         window.onload = function() {
             setTimeout(findMyLocation, 500);
+            loadFareData(); // 운임 데이터 백그라운드 로드
         };
     </script>
 </body>
