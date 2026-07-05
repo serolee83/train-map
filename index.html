@@ -11,12 +11,7 @@
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Malgun Gothic', sans-serif; overflow: hidden; }
         #map { width: 100%; height: 100%; z-index: 1; }
         
-        .info-window { padding: 5px; text-align: center; font-weight: bold; font-size: 14px; color: #1e293b; }
-        .fare-info { margin-top: 8px; font-size: 13px; font-weight: normal; text-align: left; background: #f8fafc; padding: 8px; border-radius: 4px; border: 1px solid #e2e8f0; }
-        .fare-item { display: flex; justify-content: space-between; margin-bottom: 4px; }
-        .fare-price { font-weight: bold; color: #0f172a; }
-        .select-btn { margin-top: 8px; width: 100%; padding: 6px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
-        .select-btn:hover { background: #1d4ed8; }
+        .info-window { padding: 5px; font-weight: bold; font-size: 14px; color: #1e293b; }
         
         /* 카카오맵 스타일 오른쪽 아래 내 위치 버튼 */
         .btn-mylocation { 
@@ -43,15 +38,28 @@
             box-shadow: 0 4px 10px rgba(0,0,0,0.2); font-size: 14px; font-weight: bold; color: #1e40af;
             display: flex; align-items: center; gap: 10px;
         }
-        .reset-btn {
-            background: #ef4444; color: white; border: none; border-radius: 20px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+
+        /* 역 이름 라벨 스타일 */
+        .station-label {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            font-weight: bold;
+            font-size: 12px;
+            color: #0f172a;
+            text-shadow: 1px 1px 0 #fff, -1px 1px 0 #fff, 1px -1px 0 #fff, -1px -1px 0 #fff, 0px 0px 3px #fff;
         }
+        /* 스크롤바 꾸미기 */
+        .scrollable-list::-webkit-scrollbar { width: 6px; }
+        .scrollable-list::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        .scrollable-list::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .scrollable-list::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
 </head>
 <body>
 
     <div class="status-bar" id="statusBar">
-        <span>출발역을 선택해주세요</span>
+        <span>지도 데이터를 준비중입니다...</span>
     </div>
 
     <button class="btn-mylocation" onclick="findMyLocation()">📍 내 위치로</button>
@@ -86,8 +94,6 @@
         ];
 
         let fareDatabase = {};
-        let selectedDepStation = null;
-        let stationMarkers = {};
 
         async function loadFareData() {
             document.getElementById('statusBar').innerHTML = `<span>운임표 데이터를 불러오는 중... ⏳</span>`;
@@ -112,14 +118,14 @@
                     console.warn("데이터 로드 실패 (파일이 서버에 있는지 확인하세요):", file.name, e);
                 }
             }
-            document.getElementById('statusBar').innerHTML = `<span>✅ KTX 출발역을 선택해주세요</span>`;
+            document.getElementById('statusBar').innerHTML = `<span>✅ KTX 운임표 로드 완료! 역을 클릭하세요.</span>`;
         }
 
-        function findFare(trainType, dep, arr) {
-            const data = fareDatabase[trainType];
-            if (!data) return null;
+        function findAllFares(dep) {
+            const data = fareDatabase['KTX'];
+            if (!data) return [];
             
-            let minFare = Infinity;
+            let destinations = {};
 
             for (let i = 0; i < data.length; i++) {
                 const row = data[i];
@@ -131,66 +137,59 @@
                 
                 // 역 이름에서 '역' 글자 제거 및 공백 제거하여 유연하게 매칭
                 const cleanName = (name) => name.replace(/역$/, '').trim();
+                let cDep = cleanName(dep);
+                let rDep = cleanName(colDep);
+                let rArr = cleanName(colArr);
                 
-                if ((cleanName(colDep) === cleanName(dep) && cleanName(colArr) === cleanName(arr)) || 
-                    (cleanName(colDep) === cleanName(arr) && cleanName(colArr) === cleanName(dep))) {
-                    
-                    // 숫자인지 확인 (간혹 쉼표가 들어간 문자열일 수 있음)
+                let targetStation = null;
+                if (rDep === cDep) targetStation = rArr + "역";
+                else if (rArr === cDep) targetStation = rDep + "역";
+                
+                if (targetStation) {
                     let fareValue = parseInt(String(fare).replace(/,/g, ''), 10);
                     if (!isNaN(fareValue) && fareValue > 0) {
-                        if (fareValue < minFare) minFare = fareValue;
+                        if (!destinations[targetStation] || fareValue < destinations[targetStation]) {
+                            destinations[targetStation] = fareValue;
+                        }
                     }
                 }
             }
-            return minFare === Infinity ? null : minFare;
+            
+            let result = [];
+            for (let st in destinations) {
+                result.push({ name: st, fare: destinations[st] });
+            }
+            // 요금순 정렬
+            result.sort((a, b) => a.fare - b.fare);
+            return result;
         }
 
         function formatCurrency(num) {
             return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") + '원';
         }
 
-        function resetSelection() {
-            selectedDepStation = null;
-            document.getElementById('statusBar').innerHTML = `<span>✅ KTX 출발역을 선택해주세요</span>`;
-            map.closePopup();
-        }
-
         function onStationClick(stationName) {
-            if (!selectedDepStation) {
-                selectedDepStation = stationName;
-                document.getElementById('statusBar').innerHTML = `
-                    <span>출발: <b>${stationName}</b> ➡️ 도착역을 선택하세요</span>
-                    <button class="reset-btn" onclick="resetSelection()">취소</button>
-                `;
-                
-                return `<div class="info-window">🚉 ${stationName}<br><br><span style="font-weight:normal; font-size:12px; color:#64748b;">출발역으로 설정되었습니다.<br>다른 역을 클릭하여 운임을 확인하세요.</span></div>`;
+            let reachable = findAllFares(stationName);
+            
+            let html = \`<div class="info-window" style="text-align:center; min-width: 220px;">
+                <div style="font-size:15px; color:#1e40af; border-bottom:2px solid #1e40af; padding-bottom:6px; margin-bottom:8px;">
+                    🚉 <b>\${stationName}</b> 출발 노선 및 운임
+                </div>\`;
+            
+            if (reachable.length === 0) {
+                html += \`<div style="color:#64748b; font-size:12px; padding: 15px;">운임 정보가 로드되지 않았거나<br>엑셀표에 직통 노선이 없습니다.</div>\`;
             } else {
-                if (selectedDepStation === stationName) {
-                    return `<div class="info-window">🚉 ${stationName}<br><br><span style="font-weight:normal; font-size:12px; color:#64748b;">출발역과 도착역이 같습니다.</span></div>`;
-                }
-
-                // 운임 계산
-                let ktxFare = findFare('KTX', selectedDepStation, stationName);
-
-                let fareHtml = '<div class="fare-info">';
-                let hasFare = false;
-
-                if (ktxFare) { fareHtml += `<div class="fare-item"><span>KTX 일반실:</span> <span class="fare-price">${formatCurrency(ktxFare)}</span></div>`; hasFare = true; }
-
-                if (!hasFare) {
-                    fareHtml += `<div style="text-align:center; color:#94a3b8; font-size:12px;">KTX 운임 정보가 없거나<br>직통 노선이 아닙니다.</div>`;
-                }
-                fareHtml += '</div>';
-
-                return `
-                    <div class="info-window">
-                        <div style="font-size:12px; color:#64748b;">${selectedDepStation} ➡️ ${stationName}</div>
-                        🚉 ${stationName}
-                        ${fareHtml}
-                        <button class="select-btn" onclick="resetSelection()">다른 구간 검색</button>
-                    </div>
-                `;
+                html += \`<div class="scrollable-list" style="max-height: 220px; overflow-y: auto; text-align: left; padding-right: 8px;">\`;
+                reachable.forEach(dest => {
+                    html += \`<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px; font-size:13px; border-bottom:1px solid #f1f5f9; padding-bottom:4px;">
+                        <span>➡️ \${dest.name}</span>
+                        <span style="color:#0f172a; font-weight:bold; font-size:14px; background:#f8fafc; padding:2px 6px; border-radius:4px;">\${formatCurrency(dest.fare)}</span>
+                    </div>\`;
+                });
+                html += \`</div>\`;
             }
+            html += \`</div>\`;
+            return html;
         }
 
         // GPS 내 위치 트래킹
@@ -249,9 +248,17 @@
         stations.forEach(function(station) {
             let marker = L.marker([station.lat, station.lng]).addTo(map);
             
+            // 역명 항상 표시 (툴팁)
+            marker.bindTooltip("(" + station.name + ")", {
+                permanent: true,
+                direction: 'right',
+                className: 'station-label',
+                offset: [10, 0]
+            });
+
             marker.on('click', function(e) {
                 let popupContent = onStationClick(station.name);
-                marker.bindPopup(popupContent).openPopup();
+                marker.bindPopup(popupContent, { minWidth: 220, maxWidth: 300 }).openPopup();
             });
         });
 
