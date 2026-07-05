@@ -75,6 +75,10 @@
             <option value="ITX">ITX-새마을/마음 (빨간색)</option>
             <option value="Mugunghwa">무궁화호/누리로 (주황색)</option>
         </select>
+        <div style="margin-left: 10px; padding-left: 10px; border-left: 1px solid #cbd5e1; display: flex; align-items: center; gap: 5px;">
+            <input type="checkbox" id="busFilter" onchange="updateMap()" style="width:16px; height:16px; cursor:pointer;">
+            <label for="busFilter" style="font-weight: bold; color: #475569; cursor:pointer;">🚌 전국 버스 터미널</label>
+        </div>
     </div>
 
     <button class="btn-mylocation" onclick="findMyLocation()">📍 내 위치로</button>
@@ -95,6 +99,8 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="data.js"></script>
+    <script src="bus_data.js"></script>
+    <script src="stations.js"></script>
     <script>
         const API_KEY = 'e5882e03252928b4025a4146da909c9922b30ee395de3e4de79874a435f895cd';
         
@@ -348,7 +354,63 @@
                 });
             });
 
-            // 마커 그리기
+            // 버스 마커 지우기 및 그리기용 배열 (전역)
+            if (typeof window.busMarkers !== 'undefined') {
+                window.busMarkers.forEach(m => map.removeLayer(m));
+            }
+            window.busMarkers = [];
+
+            let showBus = document.getElementById('busFilter') && document.getElementById('busFilter').checked;
+            if (showBus && typeof busTerminals !== 'undefined') {
+                busTerminals.forEach(terminal => {
+                    let iconHtml = `<div style="
+                        background-color: ${terminal.type === 'Express' ? '#0284c7' : '#059669'};
+                        width: 10px; height: 10px;
+                        border-radius: 50%;
+                        border: 2px solid white;
+                        box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+                    "></div>`;
+                    
+                    let customIcon = L.divIcon({
+                        className: 'custom-div-icon',
+                        html: iconHtml,
+                        iconSize: [10, 10],
+                        iconAnchor: [5, 5]
+                    });
+
+                    let marker = L.marker([terminal.lat, terminal.lng], { icon: customIcon }).addTo(map);
+                    
+                    let tooltip = L.tooltip({
+                        direction: 'top',
+                        className: 'station-label',
+                        offset: [0, -5]
+                    }).setContent(terminal.type === 'Express' ? `[고속] ${terminal.name}` : `[시외] ${terminal.name}`);
+                    marker.bindTooltip(tooltip);
+
+                    marker.on('click', function(e) {
+                        const scriptId = `script_${terminal.id}`;
+                        let oldScript = document.getElementById(scriptId);
+                        if(oldScript) oldScript.remove();
+                        
+                        let script = document.createElement('script');
+                        script.id = scriptId;
+                        script.src = `schedules/${terminal.id}.js`;
+                        script.onload = function() {
+                            if (window.loadedScheduleData) {
+                                executePreFetchedSchedule(terminal.id, terminal.name, window.loadedScheduleData);
+                                window.loadedScheduleData = null; // reset
+                            }
+                        };
+                        script.onerror = function() {
+                            executePreFetchedSchedule(terminal.id, terminal.name, 'NOT_DOWNLOADED');
+                        };
+                        document.head.appendChild(script);
+                    });
+                    window.busMarkers.push(marker);
+                });
+            }
+
+            // 기차 마커 그리기
             stations.forEach(station => {
                 if (activeStations.has(station.name) || activeStations.has(station.name.replace(/역$/, ''))) {
                     // 아이콘 모양 설정 (KTX역은 조금 더 크게)
@@ -386,6 +448,99 @@
 
         let myLocationMarker = null;
 
+        
+        function onBusTerminalClick(terminalId, terminalName, busType) {
+            let optionsHtml = '';
+            busTerminals.forEach(t => {
+                if(t.id !== terminalId) optionsHtml += `<option value="${t.name}"></option>`;
+            });
+
+            let html = `<div class="info-window" style="text-align:center; min-width: 320px; padding:5px;">
+                <div style="font-size:15px; color:#1e40af; border-bottom:2px solid #1e40af; padding-bottom:6px; margin-bottom:8px;">
+                    🚌 <b>${terminalName}</b> 출발 시간표 조회
+                </div>
+                <div style="margin-top: 15px; text-align: left;">
+                    <label style="font-size: 12px; font-weight: bold; color: #475569;">도착 터미널 선택:</label><br>
+                    <div style="display:flex; gap:5px; margin-top:5px;">
+                        <input list="busDestList" id="busDestInput" placeholder="도착 터미널 검색..." style="flex:1; padding:6px; border:1px solid #cbd5e1; border-radius:4px;">
+                        <datalist id="busDestList">${optionsHtml}</datalist>
+                        <button onclick="executeBusSchedule('${terminalId}', '${terminalName}', '${busType}')" style="background:#2563eb; color:white; border:none; border-radius:4px; padding:0 12px; cursor:pointer;">조회</button>
+                    </div>
+                </div>
+            </div>`;
+            return html;
+        }
+
+        async function executeBusSchedule(depId, depName, busType) {
+            let destName = document.getElementById('busDestInput').value;
+            let destTerminal = busTerminals.find(t => t.name === destName || t.id === destName);
+            
+            if (!destTerminal) {
+                alert('목록에서 정확한 도착 터미널을 선택해주세요.');
+                return;
+            }
+
+            document.getElementById('modalTitle').innerText = `${depName} ➔ ${destTerminal.name} 버스 시간표`;
+            document.getElementById('modalBody').innerHTML = `<div class="loading-spinner">시간표를 실시간으로 불러오는 중입니다...</div>`;
+            document.getElementById('scheduleModal').style.display = 'flex';
+
+            let today = new Date();
+            let yyyy = today.getFullYear();
+            let mm = String(today.getMonth() + 1).padStart(2, '0');
+            let dd = String(today.getDate()).padStart(2, '0');
+            let dateStr = `${yyyy}${mm}${dd}`;
+
+            let url = '';
+            if (busType === 'Express') {
+                url = `https://apis.data.go.kr/1613000/ExpBusInfo/GetStrtpntAlocFndExpbusInfo?serviceKey=${API_KEY}&depTerminalId=${depId}&arrTerminalId=${destTerminal.id}&depPlandTime=${dateStr}&numOfRows=50&pageNo=1&_type=json`;
+            } else {
+                url = `https://apis.data.go.kr/1613000/SuburbsBusInfo/GetStrtpntAlocFndSuberbsBusInfo?serviceKey=${API_KEY}&depTerminalId=${depId}&arrTerminalId=${destTerminal.id}&depPlandTime=${dateStr}&numOfRows=50&pageNo=1&_type=json`;
+            }
+
+            try {
+                let response = await fetch(url);
+                let data = await response.json();
+                
+                let items = data?.response?.body?.items?.item;
+                if (!items || (Array.isArray(items) && items.length === 0)) {
+                    document.getElementById('modalBody').innerHTML = `<div class="loading-spinner" style="color:#ef4444;">조회 가능한 버스 노선이 없습니다.</div>`;
+                    return;
+                }
+                if (!Array.isArray(items)) items = [items];
+
+                let html = `
+                <table class="schedule-table">
+                    <thead>
+                        <tr>
+                            <th>버스등급</th>
+                            <th>출발시간</th>
+                            <th>도착시간</th>
+                            <th>요금</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                `;
+
+                items.forEach(t => {
+                    html += `
+                        <tr>
+                            <td style="font-weight:bold; color:#059669;">${t.gradeNm}</td>
+                            <td style="font-size:16px; font-weight:bold;">${formatTime(t.depPlandTime.toString())}</td>
+                            <td style="color:#64748b;">${formatTime(t.arrPlandTime.toString())}</td>
+                            <td>${t.charge > 0 ? formatCurrency(t.charge) : '-'}</td>
+                        </tr>
+                    `;
+                });
+
+                html += `</tbody></table>`;
+                document.getElementById('modalBody').innerHTML = html;
+
+            } catch (error) {
+                console.error(error);
+                document.getElementById('modalBody').innerHTML = `<div class="loading-spinner" style="color:#ef4444;">오류가 발생했습니다.<br>잠시 후 다시 시도해주세요.</div>`;
+            }
+        }
+
         function findMyLocation() {
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(function(position) {
@@ -397,14 +552,13 @@
                         map.removeLayer(myLocationMarker);
                     }
                     
-                    myLocationMarker = L.circleMarker([lat, lng], {
-                        radius: 8,
-                        fillColor: "#ef4444",
-                        color: "#ffffff",
-                        weight: 2,
-                        opacity: 1,
-                        fillOpacity: 0.9
-                    }).addTo(map).bindTooltip("내 위치", {permanent: true, direction: "top"}).openTooltip();
+                    let redIcon = L.divIcon({
+                        className: 'custom-div-icon',
+                        html: `<div style="background-color: #ef4444; width: 18px; height: 18px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.5);"></div>`,
+                        iconSize: [18, 18],
+                        iconAnchor: [9, 9]
+                    });
+                    myLocationMarker = L.marker([lat, lng], {icon: redIcon}).addTo(map).bindTooltip("내 위치", {permanent: true, direction: "top", offset: [0, -10]}).openTooltip();
 
                 }, function(error) {
                     alert("위치 정보를 가져올 수 없습니다. 브라우저 설정에서 위치 권한을 허용해주세요.");
@@ -422,6 +576,110 @@
             }
         }, 100);
 
+        async function executePreFetchedSchedule(depId, depName, scheduleData) {
+            document.getElementById('modalTitle').innerText = `${depName} ➔ 전체 노선 버스 시간표`;
+            window.currentScheduleData = scheduleData;
+            
+            if (scheduleData === 'NOT_DOWNLOADED') {
+                document.getElementById('modalBody').innerHTML = `
+                    <div style="text-align:center; padding: 40px 20px;">
+                        <div style="font-size: 40px; margin-bottom: 15px;">⏳</div>
+                        <h3 style="color:#ef4444; font-size: 18px; margin-bottom: 10px;">아직 자료가 다운로드되지 않았습니다.</h3>
+                        <p style="color:#64748b; font-size: 14px; line-height: 1.5;">
+                            현재 전국 터미널 데이터를 백그라운드에서 순차적으로 수집 중입니다.<br>
+                            나중에 다시 확인해 주세요.
+                        </p>
+                    </div>
+                `;
+                document.getElementById('scheduleModal').style.display = 'flex';
+                return;
+            }
+            
+            let controlsHtml = `
+                <div style="margin-bottom: 15px; padding: 10px; background-color: #f1f5f9; border-radius: 8px; text-align: center;">
+                    <label style="margin-right: 15px; cursor: pointer; font-weight: bold;">
+                        <input type="radio" name="dayType" value="weekday" checked onchange="renderSchedule()"> 평일
+                    </label>
+                    <label style="margin-right: 15px; cursor: pointer; font-weight: bold;">
+                        <input type="radio" name="dayType" value="friday" onchange="renderSchedule()"> 금요일
+                    </label>
+                    <label style="cursor: pointer; font-weight: bold;">
+                        <input type="radio" name="dayType" value="weekend" onchange="renderSchedule()"> 주말
+                    </label>
+                </div>
+                <div id="scheduleContent"><div class="loading-spinner">데이터를 불러오는 중입니다...</div></div>
+            `;
+            
+            document.getElementById('modalBody').innerHTML = controlsHtml;
+            document.getElementById('scheduleModal').style.display = 'flex';
+            
+            renderSchedule();
+        }
+
+        window.renderSchedule = function() {
+            let dayType = document.querySelector('input[name="dayType"]:checked').value;
+            let items = [];
+            
+            try {
+                if (window.currentScheduleData) {
+                    if(dayType === 'weekday') items = window.currentScheduleData.weekday || [];
+                    else if(dayType === 'friday') items = window.currentScheduleData.friday || [];
+                    else if(dayType === 'weekend') items = window.currentScheduleData.weekend || [];
+                }
+                
+                if (!items || items.length === 0) {
+                    document.getElementById('scheduleContent').innerHTML = `<div class="loading-spinner" style="color:#ef4444;">조회 가능한 버스 노선이 없습니다.</div>`;
+                    return;
+                }
+
+                let grouped = {};
+                items.forEach(item => {
+                    let dest = item.arrPlaceNm;
+                    if(!grouped[dest]) grouped[dest] = [];
+                    grouped[dest].push(item);
+                });
+
+                let destinations = Object.keys(grouped).sort();
+                let html = '';
+
+                destinations.forEach(dest => {
+                    grouped[dest].sort((a, b) => parseInt(a.depPlandTime) - parseInt(b.depPlandTime));
+
+                    html += `<div style="margin-top: 15px; margin-bottom: 5px; font-weight: bold; font-size: 1.1em; color: #1e3a8a; border-bottom: 2px solid #cbd5e1; padding-bottom: 5px;">📍 도착지: ${dest} <span style="font-size:0.8em; color:#64748b; font-weight:normal;">(${grouped[dest].length}회)</span></div>`;
+                    html += `<table class="schedule-table" style="width: 100%; border-collapse: collapse; margin-bottom: 10px;">
+                        <thead style="background-color: #f8fafc; border-bottom: 1px solid #e2e8f0; font-size: 0.9em;">
+                            <tr>
+                                <th style="padding: 8px; text-align: left;">출발</th>
+                                <th style="padding: 8px; text-align: left;">도착</th>
+                                <th style="padding: 8px; text-align: left;">등급</th>
+                                <th style="padding: 8px; text-align: right;">요금</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+
+                    grouped[dest].forEach(item => {
+                        let depTime = String(item.depPlandTime);
+                        let arrTime = String(item.arrPlandTime);
+                        let depStr = depTime.substring(8, 10) + ":" + depTime.substring(10, 12);
+                        let arrStr = arrTime.substring(8, 10) + ":" + arrTime.substring(10, 12);
+                        let chargeStr = item.charge ? parseInt(item.charge).toLocaleString() + '원' : '-';
+                        
+                        html += `<tr style="border-bottom: 1px solid #f1f5f9; font-size: 0.95em;">
+                            <td style="padding: 8px; font-weight:bold; color:#ef4444;">${depStr}</td>
+                            <td style="padding: 8px; color:#64748b;">${arrStr}</td>
+                            <td style="padding: 8px;">${item.gradeNm || '-'}</td>
+                            <td style="padding: 8px; color:#047857; text-align: right;">${chargeStr}</td>
+                        </tr>`;
+                    });
+                    html += `</tbody></table>`;
+                });
+
+                document.getElementById('scheduleContent').innerHTML = html;
+            } catch(e) {
+                console.error(e);
+                document.getElementById('scheduleContent').innerHTML = `<div class="loading-spinner" style="color:#ef4444;">데이터를 불러오는 데 실패했습니다.<br>이 브라우저에서는 로컬 JSON 파일을 읽지 못할 수 있습니다.</div>`;
+            }
+        }
     </script>
 </body>
 </html>
