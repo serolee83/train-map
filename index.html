@@ -154,24 +154,68 @@
         function onStationClick(stationName) {
             let reachable = findAllFares(stationName);
             
-            let html = `<div class="info-window" style="text-align:center; min-width: 220px;">
+            let html = `<div class="info-window" style="text-align:center; min-width: 320px; padding:5px;">
                 <div style="font-size:15px; color:#1e40af; border-bottom:2px solid #1e40af; padding-bottom:6px; margin-bottom:8px;">
-                    🚉 <b>${stationName}</b> 출발 노선 및 운임
+                    🚉 <b>${stationName}</b> 출발 직통 노선
                 </div>`;
             
             if (reachable.length === 0) {
-                html += `<div style="color:#64748b; font-size:12px; padding: 15px;">운임 정보가 로드되지 않았거나<br>엑셀표에 직통 노선이 없습니다.</div>`;
-            } else {
-                html += `<div class="scrollable-list" style="max-height: 220px; overflow-y: auto; text-align: left; padding-right: 8px;">`;
-                reachable.forEach(dest => {
-                    html += `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px; font-size:13px; border-bottom:1px solid #f1f5f9; padding-bottom:4px;">
-                        <span>➡️ ${dest.name}</span>
-                        <span style="color:#0f172a; font-weight:bold; font-size:14px; background:#f8fafc; padding:2px 6px; border-radius:4px;">${formatCurrency(dest.fare)}</span>
-                    </div>`;
-                });
-                html += `</div>`;
+                html += `<div style="color:#64748b; font-size:12px; padding: 15px;">운임 정보가 로드되지 않았거나<br>직통 노선이 없습니다.</div></div>`;
+                return html;
             }
-            html += `</div>`;
+
+            const SEOUL_COORD = { lat: 37.5546, lng: 126.9706 };
+            const getDist = (name) => {
+                let st = stations.find(s => s.name === name || s.name === name + "역");
+                // 행신역 예외 처리 (행신은 서울보다 북쪽이므로 하행 분류를 피하기 위해 거리를 음수로 임의 지정)
+                if (name.includes("행신")) return -1; 
+                if (!st) return 999;
+                return Math.hypot(st.lat - SEOUL_COORD.lat, st.lng - SEOUL_COORD.lng);
+            };
+
+            let originDist = getDist(stationName);
+            
+            let upbound = [];
+            let downbound = [];
+            
+            reachable.forEach(dest => {
+                let dDist = getDist(dest.name);
+                if (dDist < originDist) {
+                    upbound.push(dest);
+                } else {
+                    downbound.push(dest);
+                }
+            });
+            
+            html += `<div style="display:flex; justify-content:space-between; text-align:left;">`;
+            
+            // 상행(서울방면)
+            html += `<div style="width:48%; border-right:1px solid #e2e8f0; padding-right:6px;">
+                <div style="font-size:13px; font-weight:bold; color:#059669; margin-bottom:6px; text-align:center; background:#ecfdf5; border-radius:4px; padding:3px;">⬆️ 상행(서울방면)</div>
+                <div class="scrollable-list" style="max-height: 220px; overflow-y: auto; padding-right:4px;">`;
+            if (upbound.length === 0) html += `<div style="font-size:11px; color:#94a3b8; text-align:center; padding:10px 0;">노선 없음</div>`;
+            upbound.forEach(dest => {
+                html += `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 5px; font-size:13px; border-bottom:1px dashed #f1f5f9; padding-bottom:3px;">
+                    <span style="color:#334155;">${dest.name}</span>
+                    <span style="color:#0f172a; font-weight:bold; font-size:12px;">${formatCurrency(dest.fare)}</span>
+                </div>`;
+            });
+            html += `</div></div>`;
+
+            // 하행(지방방면)
+            html += `<div style="width:48%; padding-left:6px;">
+                <div style="font-size:13px; font-weight:bold; color:#2563eb; margin-bottom:6px; text-align:center; background:#eff6ff; border-radius:4px; padding:3px;">⬇️ 하행(지방방면)</div>
+                <div class="scrollable-list" style="max-height: 220px; overflow-y: auto; padding-right:4px;">`;
+            if (downbound.length === 0) html += `<div style="font-size:11px; color:#94a3b8; text-align:center; padding:10px 0;">노선 없음</div>`;
+            downbound.forEach(dest => {
+                html += `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 5px; font-size:13px; border-bottom:1px dashed #f1f5f9; padding-bottom:3px;">
+                    <span style="color:#334155;">${dest.name}</span>
+                    <span style="color:#0f172a; font-weight:bold; font-size:12px;">${formatCurrency(dest.fare)}</span>
+                </div>`;
+            });
+            html += `</div></div>`;
+
+            html += `</div></div>`;
             return html;
         }
 
