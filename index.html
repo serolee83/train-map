@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>전국 기차 직통 노선 안내</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f8fafc; }
+        #map { width: 100%; height: 100%; z-index: 1; }
+        .filter-panel {
+            position: absolute; top: 15px; left: 50%; transform: translateX(-50%); z-index: 1000;
+            background: white; padding: 10px 15px; border-radius: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            display: flex; gap: 10px; border: 1px solid #e2e8f0; font-size: 14px; align-items: center;
+        }
+        .filter-panel select {
+            padding: 5px 10px; border-radius: 8px; border: 1px solid #cbd5e1; font-family: inherit; font-size: 14px;
+            outline: none; cursor: pointer;
+        }
+        .leaflet-popup-content-wrapper { border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); padding: 0; overflow: hidden; }
+        .leaflet-popup-content { margin: 0; width: 340px !important; }
+        .info-window { font-size: 14px; color: #334155; }
+        .btn-mylocation {
+            position: absolute; bottom: 30px; right: 20px; z-index: 1000;
+            background: white; width: 44px; height: 44px; border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15); cursor: pointer; border: 2px solid #e2e8f0;
+            transition: all 0.2s;
+        }
+        .btn-mylocation:hover { background: #f1f5f9; transform: scale(1.05); }
+        .clickable-dest { cursor: pointer; color: #1e40af; text-decoration: none; display: inline-block; padding: 2px 4px; border-radius: 4px; transition: background 0.2s; }
+        .clickable-dest:hover { background: #e0e7ff; text-decoration: underline; }
+        
+        /* Modal Styles */
+        #scheduleModal {
+            display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.5); backdrop-filter: blur(3px);
+            align-items: center; justify-content: center;
+        }
+        .modal-content {
+            background-color: #fff; padding: 0; border-radius: 16px; width: 90%; max-width: 500px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; display: flex; flex-direction: column;
+            max-height: 80vh;
+        }
+        .modal-header {
+            background: #1e293b; color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center;
+        }
+        .modal-header h3 { margin: 0; font-size: 18px; }
+        .close-btn { color: white; font-size: 24px; font-weight: bold; cursor: pointer; line-height: 1; }
+        .close-btn:hover { color: #cbd5e1; }
+        .modal-body { padding: 20px; overflow-y: auto; background: #f8fafc; }
+        .schedule-table { width: 100%; border-collapse: collapse; font-size: 14px; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .schedule-table th { background: #f1f5f9; padding: 10px; text-align: center; color: #475569; font-weight: bold; border-bottom: 2px solid #e2e8f0; }
+        .schedule-table td { padding: 12px 10px; text-align: center; border-bottom: 1px solid #e2e8f0; color: #334155; }
+        .schedule-table tr:last-child td { border-bottom: none; }
+        .loading-spinner { text-align: center; padding: 40px; color: #64748b; }
+            position: absolute; bottom: 30px; right: 20px; z-index: 1000;
+            background: #ffffff; color: #1e40af; border: none; padding: 12px 18px;
+            border-radius: 25px; font-weight: bold; font-size: 15px; cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15); transition: all 0.2s;
+        }
+        .btn-mylocation:hover { background: #f8fafc; transform: translateY(-2px); box-shadow: 0 6px 15px rgba(0,0,0,0.2); }
+        .station-label {
+            background: white; border: 1px solid #94a3b8; border-radius: 4px; padding: 2px 4px;
+            font-size: 12px; font-weight: bold; color: #0f172a; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body>
+    <div class="filter-panel">
+        <span style="font-weight: bold; color: #475569;">열차 필터:</span>
+        <select id="trainFilter" onchange="updateMap()">
+            <option value="ALL">전체 보기</option>
+            <option value="KTX">KTX (파란색)</option>
+            <option value="ITX">ITX-새마을/마음 (빨간색)</option>
+            <option value="Mugunghwa">무궁화호/누리로 (주황색)</option>
+        </select>
+    </div>
+
+    <button class="btn-mylocation" onclick="findMyLocation()">📍 내 위치로</button>
+
+    <div id="map"></div>
+
+    <div id="scheduleModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">열차 시간표</h3>
+                <span class="close-btn" onclick="closeModal()">&times;</span>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <div class="loading-spinner">시간표를 불러오는 중입니다...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="data.js"></script>
+    <script>
+        const API_KEY = 'e5882e03252928b4025a4146da909c9922b30ee395de3e4de79874a435f895cd';
+        
+        var map = L.map('map').setView([36.25, 127.6], 7.5);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        let markers = [];
+        let polylines = [];
+        const SEOUL_COORD = { lat: 37.5546, lng: 126.9706 };
+
+        const colors = {
+            'KTX': '#2563eb', // 파랑
+            'ITX': '#dc2626', // 빨강
+            'Mugunghwa': '#f97316' // 주황
+        };
+
+        function getDist(name) {
+            let st = stations.find(s => s.name === name || s.name === name + "역");
+            if (name.includes("행신")) return -1; 
+            if (!st) return 999;
+            return Math.hypot(st.lat - SEOUL_COORD.lat, st.lng - SEOUL_COORD.lng);
+        }
+
+        function formatCurrency(num) {
+            return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") + '원';
+        }
+
+        // 역간 직통 열차 및 최저 요금 탐색
+        function findAllFares(stationName, filterType) {
+            const cleanName = (name) => name.replace(/역$/, '').trim();
+            let cDep = cleanName(stationName);
+            
+            let destinations = {};
+
+            let typesToCheck = filterType === 'ALL' ? ['KTX', 'ITX', 'Mugunghwa'] : [filterType];
+
+            typesToCheck.forEach(type => {
+                if(!fareDatabase[type]) return;
+                fareDatabase[type].forEach(row => {
+                    let rDep = cleanName(row[0]);
+                    let rArr = cleanName(row[1]);
+                    let fareValue = parseInt(String(row[2]).replace(/,/g, ''), 10);
+                    
+                    let targetStation = null;
+                    if (rDep === cDep) targetStation = rArr + "역";
+                    else if (rArr === cDep) targetStation = rDep + "역";
+
+                    if (targetStation && !isNaN(fareValue) && fareValue > 0) {
+                        if (!destinations[targetStation]) destinations[targetStation] = {};
+                        if (!destinations[targetStation][type] || fareValue < destinations[targetStation][type]) {
+                            destinations[targetStation][type] = fareValue;
+                        }
+                    }
+                });
+            });
+
+            let result = [];
+            for (let st in destinations) {
+                result.push({ name: st, fares: destinations[st] });
+            }
+            return result;
+        }
+
+        function onStationClick(stationName) {
+            let filterType = document.getElementById('trainFilter').value;
+            let reachable = findAllFares(stationName, filterType);
+            
+            let html = `<div class="info-window" style="text-align:center; min-width: 320px; padding:5px;">
+                <div style="font-size:15px; color:#1e40af; border-bottom:2px solid #1e40af; padding-bottom:6px; margin-bottom:8px;">
+                    🚉 <b>${stationName}</b> 출발 직통 노선
+                </div>`;
+            
+            if (reachable.length === 0) {
+                html += `<div style="color:#64748b; font-size:12px; padding: 15px;">운임 정보가 로드되지 않았거나<br>해당 열차의 직통 노선이 없습니다.</div></div>`;
+                return html;
+            }
+
+            let originDist = getDist(stationName);
+            let upbound = [];
+            let downbound = [];
+            
+            reachable.forEach(dest => {
+                let dDist = getDist(dest.name);
+                if (dDist < originDist) upbound.push(dest);
+                else downbound.push(dest);
+            });
+
+            // 정렬: KTX, ITX, Mugunghwa 중 존재하는 최저 요금 기준
+            const getMinFare = (faresObj) => Math.min(...Object.values(faresObj));
+            upbound.sort((a, b) => getMinFare(a.fares) - getMinFare(b.fares));
+            downbound.sort((a, b) => getMinFare(a.fares) - getMinFare(b.fares));
+
+            const renderFareBadges = (faresObj) => {
+                let badges = '';
+                if(faresObj['KTX']) badges += `<span style="background:#dbeafe; color:#1e40af; padding:1px 4px; border-radius:3px; margin-left:2px;">KTX ${formatCurrency(faresObj['KTX'])}</span>`;
+                if(faresObj['ITX']) badges += `<span style="background:#fee2e2; color:#b91c1c; padding:1px 4px; border-radius:3px; margin-left:2px;">ITX ${formatCurrency(faresObj['ITX'])}</span>`;
+                if(faresObj['Mugunghwa']) badges += `<span style="background:#ffedd5; color:#c2410c; padding:1px 4px; border-radius:3px; margin-left:2px;">무궁화/누리 ${formatCurrency(faresObj['Mugunghwa'])}</span>`;
+                return badges;
+            };
+            
+            html += `<div style="display:flex; justify-content:space-between; text-align:left;">`;
+            
+            // 상행(서울방면)
+            html += `<div style="width:48%; border-right:1px solid #e2e8f0; padding-right:6px;">
+                <div style="font-size:13px; font-weight:bold; color:#059669; margin-bottom:6px; text-align:center; background:#ecfdf5; border-radius:4px; padding:3px;">⬆️ 상행(서울방면)</div>
+                <div class="scrollable-list" style="max-height: 220px; overflow-y: auto; padding-right:4px;">`;
+            if (upbound.length === 0) html += `<div style="font-size:11px; color:#94a3b8; text-align:center; padding:10px 0;">노선 없음</div>`;
+            upbound.forEach(dest => {
+                html += `<div style="margin-bottom: 5px; font-size:12px; border-bottom:1px dashed #f1f5f9; padding-bottom:4px;">
+                    <div style="font-weight:bold; margin-bottom:2px;">
+                        <a href="#" class="clickable-dest" onclick="fetchSchedule('${stationName}', '${dest.name}'); return false;">${dest.name} 🗓️</a>
+                    </div>
+                    <div style="font-size:11px; display:flex; flex-direction:column; gap:2px; align-items:flex-start;">${renderFareBadges(dest.fares)}</div>
+                </div>`;
+            });
+            html += `</div></div>`;
+
+            // 하행(지방방면)
+            html += `<div style="width:48%; padding-left:6px;">
+                <div style="font-size:13px; font-weight:bold; color:#2563eb; margin-bottom:6px; text-align:center; background:#eff6ff; border-radius:4px; padding:3px;">⬇️ 하행(지방방면)</div>
+                <div class="scrollable-list" style="max-height: 220px; overflow-y: auto; padding-right:4px;">`;
+            if (downbound.length === 0) html += `<div style="font-size:11px; color:#94a3b8; text-align:center; padding:10px 0;">노선 없음</div>`;
+            downbound.forEach(dest => {
+                html += `<div style="margin-bottom: 5px; font-size:12px; border-bottom:1px dashed #f1f5f9; padding-bottom:4px;">
+                    <div style="font-weight:bold; margin-bottom:2px;">
+                        <a href="#" class="clickable-dest" onclick="fetchSchedule('${stationName}', '${dest.name}'); return false;">${dest.name} 🗓️</a>
+                    </div>
+                    <div style="font-size:11px; display:flex; flex-direction:column; gap:2px; align-items:flex-start;">${renderFareBadges(dest.fares)}</div>
+                </div>`;
+            });
+            html += `</div></div>`;
+
+            html += `</div></div>`;
+            return html;
+        }
+
+        function closeModal() {
+            document.getElementById('scheduleModal').style.display = 'none';
+        }
+
+        function formatTime(timeStr) {
+            if (!timeStr || timeStr.length < 14) return timeStr;
+            return timeStr.substring(8, 10) + ':' + timeStr.substring(10, 12);
+        }
+
+        async function fetchSchedule(depName, arrName) {
+            let depStation = stations.find(s => s.name === depName);
+            let arrStation = stations.find(s => s.name === arrName);
+            
+            if (!depStation || !arrStation || !depStation.nodeid || !arrStation.nodeid) {
+                alert('해당 역의 API 식별 코드가 없어 시간표를 조회할 수 없습니다.');
+                return;
+            }
+
+            document.getElementById('modalTitle').innerText = `${depName} ➔ ${arrName} 열차 시간표`;
+            document.getElementById('modalBody').innerHTML = `<div class="loading-spinner">오늘의 시간표를 실시간으로 불러오는 중입니다...<br>잠시만 기다려주세요.</div>`;
+            document.getElementById('scheduleModal').style.display = 'flex';
+
+            let today = new Date();
+            let yyyy = today.getFullYear();
+            let mm = String(today.getMonth() + 1).padStart(2, '0');
+            let dd = String(today.getDate()).padStart(2, '0');
+            let dateStr = `${yyyy}${mm}${dd}`;
+
+            let url = `http://apis.data.go.kr/1613000/TrainInfo/GetStrtpntAlocFndTrainInfo?serviceKey=${API_KEY}&depPlaceId=${depStation.nodeid}&arrPlaceId=${arrStation.nodeid}&depPlandTime=${dateStr}&numOfRows=50&pageNo=1&_type=json`;
+
+            try {
+                let response = await fetch(url);
+                let data = await response.json();
+                
+                let items = data?.response?.body?.items?.item;
+                if (!items) {
+                    document.getElementById('modalBody').innerHTML = `<div class="loading-spinner" style="color:#ef4444;">조회 가능한 직통 열차가 없습니다.</div>`;
+                    return;
+                }
+                if (!Array.isArray(items)) items = [items];
+
+                let html = `
+                <table class="schedule-table">
+                    <thead>
+                        <tr>
+                            <th>열차종류</th>
+                            <th>출발시간</th>
+                            <th>도착시간</th>
+                            <th>요금</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                `;
+
+                items.forEach(t => {
+                    let typeColor = '#334155';
+                    if(t.traingradename.includes('KTX')) typeColor = '#1e40af';
+                    else if(t.traingradename.includes('ITX')) typeColor = '#b91c1c';
+                    else if(t.traingradename.includes('무궁화')) typeColor = '#c2410c';
+
+                    html += `
+                        <tr>
+                            <td style="color:${typeColor}; font-weight:bold;">${t.traingradename} <span style="font-size:11px;color:#94a3b8;font-weight:normal;">(${t.trainno})</span></td>
+                            <td style="font-size:16px; font-weight:bold;">${formatTime(t.depplandtime.toString())}</td>
+                            <td style="color:#64748b;">${formatTime(t.arrplandtime.toString())}</td>
+                            <td>${t.adultcharge > 0 ? formatCurrency(t.adultcharge) : '-'}</td>
+                        </tr>
+                    `;
+                });
+
+                html += `</tbody></table>`;
+                document.getElementById('modalBody').innerHTML = html;
+
+            } catch (error) {
+                console.error(error);
+                document.getElementById('modalBody').innerHTML = `<div class="loading-spinner" style="color:#ef4444;">오류가 발생했습니다.<br>잠시 후 다시 시도해주세요.</div>`;
+            }
+        }
+
+        function updateMap() {
+            // 기존 마커 및 선 제거
+            markers.forEach(m => map.removeLayer(m));
+            polylines.forEach(p => map.removeLayer(p));
+            markers = [];
+            polylines = [];
+
+            let filterType = document.getElementById('trainFilter').value;
+            let typesToDraw = filterType === 'ALL' ? ['Mugunghwa', 'ITX', 'KTX'] : [filterType];
+
+            // 사용될 역들을 모음
+            let activeStations = new Set();
+
+            typesToDraw.forEach(type => {
+                if(!routeEdges[type]) return;
+                let color = colors[type];
+                let weight = type === 'KTX' ? 4 : (type === 'ITX' ? 3 : 2);
+                
+                routeEdges[type].forEach(edge => {
+                    let st1 = stations.find(s => s.name === edge[0] || s.name === edge[0] + "역");
+                    let st2 = stations.find(s => s.name === edge[1] || s.name === edge[1] + "역");
+                    if(st1 && st2) {
+                        activeStations.add(st1.name);
+                        activeStations.add(st2.name);
+                        
+                        let polyline = L.polyline([[st1.lat, st1.lng], [st2.lat, st2.lng]], {
+                            color: color,
+                            weight: weight,
+                            opacity: 0.6,
+                            smoothFactor: 1
+                        }).addTo(map);
+                        polylines.push(polyline);
+                    }
+                });
+            });
+
+            // 마커 그리기
+            stations.forEach(station => {
+                if (activeStations.has(station.name) || activeStations.has(station.name.replace(/역$/, ''))) {
+                    // 아이콘 모양 설정 (KTX역은 조금 더 크게)
+                    let isKTX = filterType === 'ALL' || filterType === 'KTX'; 
+                    let iconHtml = `<div style="
+                        background-color: ${isKTX ? '#1e40af' : '#dc2626'};
+                        width: 14px; height: 14px;
+                        border-radius: 50%;
+                        border: 2px solid white;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+                    "></div>`;
+                    
+                    let customIcon = L.divIcon({
+                        className: 'custom-div-icon',
+                        html: iconHtml,
+                        iconSize: [14, 14],
+                        iconAnchor: [7, 7]
+                    });
+
+                    let marker = L.marker([station.lat, station.lng], { icon: customIcon }).addTo(map);
+                    
+                    let tooltip = L.tooltip({
+                        permanent: true,
+                        direction: 'right',
+                        className: 'station-label',
+                        offset: [10, 0]
+                    }).setContent(station.name);
+                    marker.bindTooltip(tooltip);
+
+                    marker.bindPopup(() => onStationClick(station.name), { maxWidth: 350 });
+                    markers.push(marker);
+                }
+            });
+        }
+
+        function findMyLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(function(position) {
+                    var lat = position.coords.latitude;
+                    var lng = position.coords.longitude;
+                    map.flyTo([lat, lng], 11, { duration: 1.5 });
+                }, function(error) {
+                    alert("위치 정보를 가져올 수 없습니다. 브라우저 설정에서 위치 권한을 허용해주세요.");
+                });
+            } else {
+                alert("이 브라우저에서는 위치 기반 서비스를 지원하지 않습니다.");
+            }
+        }
+
+        // 초기 데이터 로드 대기
+        let loadCheck = setInterval(() => {
+            if(typeof stations !== 'undefined') {
+                clearInterval(loadCheck);
+                updateMap();
+            }
+        }, 100);
+
+    </script>
+</body>
+</html>
