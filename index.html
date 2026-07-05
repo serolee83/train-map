@@ -261,7 +261,7 @@
             let dd = String(today.getDate()).padStart(2, '0');
             let dateStr = `${yyyy}${mm}${dd}`;
 
-            let url = `http://apis.data.go.kr/1613000/TrainInfo/GetStrtpntAlocFndTrainInfo?serviceKey=${API_KEY}&depPlaceId=${depStation.nodeid}&arrPlaceId=${arrStation.nodeid}&depPlandTime=${dateStr}&numOfRows=50&pageNo=1&_type=json`;
+            let url = `https://apis.data.go.kr/1613000/TrainInfo/GetStrtpntAlocFndTrainInfo?serviceKey=${API_KEY}&depPlaceId=${depStation.nodeid}&arrPlaceId=${arrStation.nodeid}&depPlandTime=${dateStr}&numOfRows=50&pageNo=1&_type=json`;
 
             try {
                 let response = await fetch(url);
