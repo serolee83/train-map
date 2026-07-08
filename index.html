@@ -528,7 +528,7 @@
             let html = `<div class="info-window" style="text-align:center; min-width: 320px; padding:5px;">
                 <div style="font-size:15px; color:#1e40af; border-bottom:2px solid #1e40af; padding-bottom:6px; margin-bottom:8px; display:flex; align-items:center; justify-content:center; gap:8px;">
                     <span>🚌 <b>${terminal.name}</b> 시간표 조회</span>
-                    <button onclick="window.open('https://search.naver.com/search.naver?query=' + encodeURIComponent('${terminal.name} ' + ('${terminal.type}' === 'Express' ? '고속버스' : '시외버스')), 'naverPopup', 'width=500,height=700,scrollbars=yes,resizable=yes')" style="background-color:#03c75a; color:white; border:none; border-radius:4px; padding:4px 8px; font-size:12px; cursor:pointer; font-weight:bold; white-space:nowrap;">네이버 검색</button>
+                    <button onclick="window.open('https://search.naver.com/search.naver?query=' + encodeURIComponent('${terminal.name} ' + ('${terminal.type}' === 'Express' ? '고속버스' : '시외버스')), '_blank')" style="background-color:#03c75a; color:white; border:none; border-radius:4px; padding:4px 8px; font-size:12px; cursor:pointer; font-weight:bold; white-space:nowrap;">네이버 검색</button>
                 </div>
                 <div style="margin-top: 10px; text-align: left;">
                     <label style="font-size: 12px; font-weight: bold; color: #475569;">도착 터미널 선택:</label><br>
