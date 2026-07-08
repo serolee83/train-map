@@ -414,24 +414,8 @@
                     marker.bindTooltip(tooltip);
 
                     marker.on('click', function(e) {
-                        const scriptId = `script_${terminal.id}`;
-                        let oldScript = document.getElementById(scriptId);
-                        if(oldScript) oldScript.remove();
-                        
-                        let script = document.createElement('script');
-                        script.id = scriptId;
-                        script.src = `schedules/${terminal.id}.js`;
-                        script.onload = function() {
-                            if (window.loadedScheduleData) {
-                                executePreFetchedSchedule(terminal.id, terminal.name, window.loadedScheduleData);
-                                window.loadedScheduleData = null; // reset
-                            }
-                        };
-                        script.onerror = function() {
-                            let popupHtml = onBusTerminalClick(terminal);
-                            marker.bindPopup(popupHtml, { minWidth: 320 }).openPopup();
-                        };
-                        document.head.appendChild(script);
+                        let busTypeStr = terminal.type === 'Express' ? '고속버스' : '시외버스';
+                        window.open('https://search.naver.com/search.naver?query=' + encodeURIComponent(terminal.name + ' ' + busTypeStr), '_blank');
                     });
                     window.busMarkers.push(marker);
                 });
