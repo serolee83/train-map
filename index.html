@@ -526,15 +526,16 @@
             let nearbyHtml = nearbyCities.map(renderNearbyShortcut).join('');
 
             let html = `<div class="info-window" style="text-align:center; min-width: 320px; padding:5px;">
-                <div style="font-size:15px; color:#1e40af; border-bottom:2px solid #1e40af; padding-bottom:6px; margin-bottom:8px;">
-                    🚌 <b>${terminal.name}</b> 출발 시간표 실시간 조회
+                <div style="font-size:15px; color:#1e40af; border-bottom:2px solid #1e40af; padding-bottom:6px; margin-bottom:8px; display:flex; align-items:center; justify-content:center; gap:8px;">
+                    <span>🚌 <b>${terminal.name}</b> 시간표 조회</span>
+                    <button onclick="window.open('https://search.naver.com/search.naver?query=' + encodeURIComponent('${terminal.name} ' + ('${terminal.type}' === 'Express' ? '고속버스' : '시외버스')), 'naverPopup', 'width=500,height=700,scrollbars=yes,resizable=yes')" style="background-color:#03c75a; color:white; border:none; border-radius:4px; padding:4px 8px; font-size:12px; cursor:pointer; font-weight:bold; white-space:nowrap;">네이버 검색</button>
                 </div>
                 <div style="margin-top: 10px; text-align: left;">
                     <label style="font-size: 12px; font-weight: bold; color: #475569;">도착 터미널 선택:</label><br>
                     <div style="display:flex; gap:5px; margin-top:5px; margin-bottom: 12px;">
                         <input list="busDestList" id="busDestInput" placeholder="도착 터미널 검색..." style="flex:1; padding:6px; border:1px solid #cbd5e1; border-radius:4px;">
                         <datalist id="busDestList">${optionsHtml}</datalist>
-                        <button onclick="executeBusSchedule('${terminal.id}', '${terminal.name}', '${terminal.type}')" style="background:#2563eb; color:white; border:none; border-radius:4px; padding:0 12px; cursor:pointer;">조회</button>
+                        <button onclick="executeBusSchedule('${terminal.id}', '${terminal.name}', '${terminal.type}')" style="background:#2563eb; color:white; border:none; border-radius:4px; padding:6px 12px; cursor:pointer; white-space:nowrap;">조회</button>
                     </div>
                     
                     <div style="margin-bottom: 10px;">
@@ -674,22 +675,41 @@
             let input = document.getElementById('globalSearchInput').value;
             if(!input) return;
             
+            let terminal = null;
             let nameMatch = input.match(/(.+) \[(고속|시외)\]$/);
             if (nameMatch) {
                 let name = nameMatch[1];
                 let type = nameMatch[2] === '고속' ? 'Express' : 'Intercity';
-                let terminal = busTerminals.find(t => t.name === name && t.type === type);
-                if (terminal) {
-                    onBusTerminalClick(terminal);
-                    document.getElementById('globalSearchInput').value = '';
-                }
+                terminal = busTerminals.find(t => t.name === name && t.type === type);
             } else {
-                // If typed manually without [고속]
-                let terminal = busTerminals.find(t => t.name === input);
-                if (terminal) {
-                    onBusTerminalClick(terminal);
-                    document.getElementById('globalSearchInput').value = '';
+                terminal = busTerminals.find(t => t.name === input);
+            }
+
+            if (terminal) {
+                let html = onBusTerminalClick(terminal);
+                
+                let markerObj = null;
+                if (window.busMarkers) {
+                    markerObj = window.busMarkers.find(m => {
+                        let ll = m.getLatLng();
+                        return ll.lat === terminal.lat && ll.lng === terminal.lng;
+                    });
                 }
+
+                if (markerObj) {
+                    markerObj.bindPopup(html, { minWidth: 320 }).openPopup();
+                    map.setView(markerObj.getLatLng(), 11);
+                } else {
+                    let latlng = terminal.lat ? [terminal.lat, terminal.lng] : map.getCenter();
+                    L.popup({ minWidth: 320 })
+                     .setLatLng(latlng)
+                     .setContent(html)
+                     .openOn(map);
+                    if (terminal.lat) {
+                        map.setView(latlng, 11);
+                    }
+                }
+                document.getElementById('globalSearchInput').value = '';
             }
         };
 
