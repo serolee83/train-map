@@ -64,20 +64,30 @@
             background: white; border: 1px solid #94a3b8; border-radius: 4px; padding: 2px 4px;
             font-size: 12px; font-weight: bold; color: #0f172a; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
         }
+        .shortcut-btn {
+            background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; border-radius: 12px;
+            padding: 4px 10px; font-size: 11px; cursor: pointer; transition: all 0.2s; white-space: nowrap;
+        }
+        .shortcut-btn:hover { background: #e2e8f0; color: #0f172a; }
     </style>
 </head>
 <body>
     <div class="filter-panel">
-        <span style="font-weight: bold; color: #475569;">열차 필터:</span>
+        <span style="font-weight: bold; color: #475569;">기차 필터:</span>
         <select id="trainFilter" onchange="updateMap()">
             <option value="ALL">전체 보기</option>
             <option value="KTX">KTX (파란색)</option>
             <option value="ITX">ITX-새마을/마음 (빨간색)</option>
             <option value="Mugunghwa">무궁화호/누리로 (주황색)</option>
+            <option value="NONE">기차 숨기기</option>
         </select>
         <div style="margin-left: 10px; padding-left: 10px; border-left: 1px solid #cbd5e1; display: flex; align-items: center; gap: 5px;">
             <input type="checkbox" id="busFilter" onchange="updateMap()" style="width:16px; height:16px; cursor:pointer;">
             <label for="busFilter" style="font-weight: bold; color: #475569; cursor:pointer;">🚌 전국 버스 터미널</label>
+        </div>
+        <div style="margin-left: 10px; padding-left: 10px; border-left: 1px solid #cbd5e1; display: flex; align-items: center; gap: 5px;">
+            <input type="text" id="globalSearchInput" list="allTerminalsDatalist" placeholder="🔍 터미널 이름 검색" style="padding: 5px 10px; border-radius: 8px; border: 1px solid #cbd5e1; width: 150px; font-family:inherit;" onchange="onGlobalSearchChange()">
+            <datalist id="allTerminalsDatalist"></datalist>
         </div>
     </div>
 
@@ -100,7 +110,6 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="data.js"></script>
     <script src="bus_data.js"></script>
-    <script src="stations.js"></script>
     <script>
         const API_KEY = 'e5882e03252928b4025a4146da909c9922b30ee395de3e4de79874a435f895cd';
         
@@ -244,8 +253,12 @@
         }
 
         function formatTime(timeStr) {
-            if (!timeStr || timeStr.length < 14) return timeStr;
-            return timeStr.substring(8, 10) + ':' + timeStr.substring(10, 12);
+            if (!timeStr) return '';
+            let str = timeStr.toString();
+            if (str.length === 14 || str.length === 12) {
+                return str.substring(8, 10) + ':' + str.substring(10, 12);
+            }
+            return str;
         }
 
         async function fetchSchedule(depName, arrName) {
@@ -363,6 +376,8 @@
             let showBus = document.getElementById('busFilter') && document.getElementById('busFilter').checked;
             if (showBus && typeof busTerminals !== 'undefined') {
                 busTerminals.forEach(terminal => {
+                    if (!terminal.lat || !terminal.lng) return;
+                    
                     let iconHtml = `<div style="
                         background-color: ${terminal.type === 'Express' ? '#0284c7' : '#059669'};
                         width: 10px; height: 10px;
@@ -402,7 +417,8 @@
                             }
                         };
                         script.onerror = function() {
-                            executePreFetchedSchedule(terminal.id, terminal.name, 'NOT_DOWNLOADED');
+                            let popupHtml = onBusTerminalClick(terminal);
+                            marker.bindPopup(popupHtml, { minWidth: 320 }).openPopup();
                         };
                         document.head.appendChild(script);
                     });
@@ -448,23 +464,90 @@
 
         let myLocationMarker = null;
 
-        
-        function onBusTerminalClick(terminalId, terminalName, busType) {
+        window.clickShortcut = function(depId, depName, busType, destName) {
+            let inputEl = document.getElementById('busDestInput');
+            if(inputEl) inputEl.value = destName;
+            executeBusSchedule(depId, depName, busType);
+        };
+
+        function onBusTerminalClick(terminal) {
             let optionsHtml = '';
             busTerminals.forEach(t => {
-                if(t.id !== terminalId) optionsHtml += `<option value="${t.name}"></option>`;
+                if(t.id !== terminal.id && t.type === terminal.type) {
+                    optionsHtml += `<option value="${t.name}"></option>`;
+                }
             });
+
+            // 주변 5개 도시 계산 (같은 종류의 버스 터미널만)
+            let distances = [];
+            busTerminals.forEach(t => {
+                if (t.id !== terminal.id && t.type === terminal.type && t.lat && terminal.lat) {
+                    let dist = Math.hypot(t.lat - terminal.lat, t.lng - terminal.lng);
+                    distances.push({ name: t.name, dist: dist });
+                }
+            });
+            distances.sort((a, b) => a.dist - b.dist);
+            let nearbyCities = distances.slice(0, 5).map(d => d.name);
+
+            // 주요 대도시 (출발지 종류에 따라 고속/시외 매핑 분리)
+            let majorCities = [];
+            if (terminal.type === 'Express') {
+                majorCities = [
+                    { display: '서울(경부)', exact: '서울경부' },
+                    { display: '센트럴(호남)', exact: '센트럴시티(서울)' },
+                    { display: '동서울', exact: '동서울' },
+                    { display: '인천', exact: '인천' },
+                    { display: '수원', exact: '수원' },
+                    { display: '대전복합', exact: '대전복합' },
+                    { display: '광주(유스퀘어)', exact: '광주(유·스퀘어)' },
+                    { display: '부산', exact: '부산' }
+                ];
+            } else {
+                majorCities = [
+                    { display: '서울남부', exact: '서울남부' },
+                    { display: '동서울', exact: '동서울' },
+                    { display: '인천', exact: '인천' },
+                    { display: '수원', exact: '수원터미널' },
+                    { display: '대전복합', exact: '대전복합' },
+                    { display: '광주(유스퀘어)', exact: '광주(유·스퀘어)' },
+                    { display: '부산(사상)', exact: '부산서부(사상)' }
+                ];
+            }
+
+            const renderNearbyShortcut = (name) => {
+                let shortName = name.replace('종합터미널', '').replace('고속버스터미널', '').replace('종합버스터미널', '').replace('시외버스터미널', '');
+                return `<button class="shortcut-btn" onclick="clickShortcut('${terminal.id}', '${terminal.name}', '${terminal.type}', '${name}')">${shortName}</button>`;
+            };
+
+            let majorHtml = majorCities.filter(m => m.exact !== terminal.name).map(m => {
+                return `<button class="shortcut-btn" onclick="clickShortcut('${terminal.id}', '${terminal.name}', '${terminal.type}', '${m.exact}')">${m.display}</button>`;
+            }).join('');
+            
+            let nearbyHtml = nearbyCities.map(renderNearbyShortcut).join('');
 
             let html = `<div class="info-window" style="text-align:center; min-width: 320px; padding:5px;">
                 <div style="font-size:15px; color:#1e40af; border-bottom:2px solid #1e40af; padding-bottom:6px; margin-bottom:8px;">
-                    🚌 <b>${terminalName}</b> 출발 시간표 조회
+                    🚌 <b>${terminal.name}</b> 출발 시간표 실시간 조회
                 </div>
-                <div style="margin-top: 15px; text-align: left;">
+                <div style="margin-top: 10px; text-align: left;">
                     <label style="font-size: 12px; font-weight: bold; color: #475569;">도착 터미널 선택:</label><br>
-                    <div style="display:flex; gap:5px; margin-top:5px;">
+                    <div style="display:flex; gap:5px; margin-top:5px; margin-bottom: 12px;">
                         <input list="busDestList" id="busDestInput" placeholder="도착 터미널 검색..." style="flex:1; padding:6px; border:1px solid #cbd5e1; border-radius:4px;">
                         <datalist id="busDestList">${optionsHtml}</datalist>
-                        <button onclick="executeBusSchedule('${terminalId}', '${terminalName}', '${busType}')" style="background:#2563eb; color:white; border:none; border-radius:4px; padding:0 12px; cursor:pointer;">조회</button>
+                        <button onclick="executeBusSchedule('${terminal.id}', '${terminal.name}', '${terminal.type}')" style="background:#2563eb; color:white; border:none; border-radius:4px; padding:0 12px; cursor:pointer;">조회</button>
+                    </div>
+                    
+                    <div style="margin-bottom: 10px;">
+                        <span style="font-size:11px; font-weight:bold; color:#64748b; margin-right:5px; display:block; margin-bottom:3px;">🏙️ 주요 대도시:</span>
+                        <div style="display:flex; flex-wrap:wrap; gap:4px;">
+                            ${majorHtml}
+                        </div>
+                    </div>
+                    <div>
+                        <span style="font-size:11px; font-weight:bold; color:#64748b; margin-right:5px; display:block; margin-bottom:3px;">📍 주변 가까운 터미널:</span>
+                        <div style="display:flex; flex-wrap:wrap; gap:4px;">
+                            ${nearbyHtml}
+                        </div>
                     </div>
                 </div>
             </div>`;
@@ -473,10 +556,10 @@
 
         async function executeBusSchedule(depId, depName, busType) {
             let destName = document.getElementById('busDestInput').value;
-            let destTerminal = busTerminals.find(t => t.name === destName || t.id === destName);
+            let destTerminal = busTerminals.find(t => (t.name === destName || t.id === destName) && t.type === busType);
             
             if (!destTerminal) {
-                alert('목록에서 정확한 도착 터미널을 선택해주세요.');
+                alert('해당 종류(' + (busType === 'Express' ? '고속' : '시외') + ')의 도착 터미널을 찾을 수 없습니다. 목록에서 선택해주세요.');
                 return;
             }
 
@@ -572,9 +655,43 @@
         let loadCheck = setInterval(() => {
             if(typeof stations !== 'undefined') {
                 clearInterval(loadCheck);
+                initGlobalSearch();
                 updateMap();
             }
         }, 100);
+
+        function initGlobalSearch() {
+            let datalist = document.getElementById('allTerminalsDatalist');
+            let html = '';
+            busTerminals.forEach(t => {
+                let typeLabel = t.type === 'Express' ? '[고속]' : '[시외]';
+                html += `<option value="${t.name} ${typeLabel}" data-id="${t.id}"></option>`;
+            });
+            datalist.innerHTML = html;
+        }
+
+        window.onGlobalSearchChange = function() {
+            let input = document.getElementById('globalSearchInput').value;
+            if(!input) return;
+            
+            let nameMatch = input.match(/(.+) \[(고속|시외)\]$/);
+            if (nameMatch) {
+                let name = nameMatch[1];
+                let type = nameMatch[2] === '고속' ? 'Express' : 'Intercity';
+                let terminal = busTerminals.find(t => t.name === name && t.type === type);
+                if (terminal) {
+                    onBusTerminalClick(terminal);
+                    document.getElementById('globalSearchInput').value = '';
+                }
+            } else {
+                // If typed manually without [고속]
+                let terminal = busTerminals.find(t => t.name === input);
+                if (terminal) {
+                    onBusTerminalClick(terminal);
+                    document.getElementById('globalSearchInput').value = '';
+                }
+            }
+        };
 
         async function executePreFetchedSchedule(depId, depName, scheduleData) {
             document.getElementById('modalTitle').innerText = `${depName} ➔ 전체 노선 버스 시간표`;
